@@ -1,0 +1,67 @@
+﻿{
+  "Header": {
+    "CreatedBy": "",
+    "Date": "2019-12-03T15:41:05.3453290Z",
+    "AppVersion": "3",
+    "FileVersion": 8
+  },
+  "Body": {
+    "SavedInDeclMode": true,
+    "VehCat": "Tractor",
+    "LegislativeClass": "N3",
+    "CurbWeight": 8229.0,
+    "CurbWeightExtra": 0.0,
+    "Loading": 0.0,
+    "MassMax": 18.0,
+    "rdyn": 0.0,
+    "CdCorrMode": "CdofVdecl",
+    "CdCorrFile": "",
+    "Retarder": {
+      "Type": "secondary",
+      "Ratio": 1.0,
+      "File": "Default.vrlm"
+    },
+    "Angledrive": {
+      "Type": "None",
+      "Ratio": 0.0,
+      "LossMap": ""
+    },
+    "PTO": {
+      "Type": "None",
+      "LossMap": "",
+      "Cycle": ""
+    },
+    "TorqueLimits": {},
+    "IdlingSpeed": 600.0,
+    "AxleConfig": {
+      "Type": "4x2",
+      "Axles": [
+        {
+          "Inertia": 14.9,
+          "Wheels": "315/70 R22.5",
+          "AxleWeightShare": 0.0,
+          "TwinTyres": false,
+          "RRCISO": 0.0055,
+          "FzISO": 33350.0,
+          "Type": "VehicleNonDriven"
+        },
+        {
+          "Inertia": 14.9,
+          "Wheels": "315/70 R22.5",
+          "AxleWeightShare": 0.0,
+          "TwinTyres": true,
+          "RRCISO": 0.0065,
+          "FzISO": 33350.0,
+          "Type": "VehicleDriven"
+        }
+      ]
+    },
+    "TankSystem": "Compressed",
+    "EngineStopStart": false,
+    "EcoRoll": "None",
+    "PredictiveCruiseControl": "None",
+    "ATEcoRollReleaseLockupClutch": false,
+    "CdA": 5.3,
+    "VehicleHeight": 0.0
+  }
+}

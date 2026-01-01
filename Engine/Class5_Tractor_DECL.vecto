@@ -1,0 +1,61 @@
+﻿{
+  "Header": {
+    "CreatedBy": "",
+    "Date": "2019-12-03T16:14:46.6635584Z",
+    "AppVersion": "3",
+    "FileVersion": 5
+  },
+  "Body": {
+    "SavedInDeclMode": true,
+    "EngineOnlyMode": false,
+    "VehicleFile": "Class5_Tractor.vveh",
+    "EngineFile": "Engine_325kW_12.7l.veng",
+    "GearboxFile": "AMT_12.vgbx",
+    "ShiftStrategy": "",
+    "AuxiliaryAssembly": "Classic",
+    "AuxiliaryVersion": "CLASSIC",
+    "AdvancedAuxiliaryFilePath": "",
+    "Aux": [
+      {
+        "ID": "FAN",
+        "Type": "Fan",
+        "Technology": [
+          "Belt driven or driven via transm. - Electronically controlled visco clutch"
+        ]
+      },
+      {
+        "ID": "STP",
+        "Type": "Steering pump",
+        "Technology": [
+          "Fixed displacement with elec. control"
+        ]
+      },
+      {
+        "ID": "AC",
+        "Type": "HVAC",
+        "Technology": [
+          "Default"
+        ]
+      },
+      {
+        "ID": "ES",
+        "Type": "Electric System",
+        "Technology": [
+          "Standard technology"
+        ]
+      },
+      {
+        "ID": "PS",
+        "Type": "Pneumatic System",
+        "Technology": [
+          "Medium Supply 2-stage + ESS + AMS"
+        ]
+      }
+    ],
+    "OverSpeedEcoRoll": {
+      "Mode": "Overspeed",
+      "MinSpeed": 50.0,
+      "OverSpeed": 2.5
+    }
+  }
+}

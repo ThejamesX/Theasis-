@@ -1,0 +1,35 @@
+﻿{
+  "Header": {
+    "CreatedBy": "",
+    "Date": "2019-12-03T15:41:09.6416867Z",
+    "AppVersion": "3",
+    "FileVersion": 5
+  },
+  "Body": {
+    "SavedInDeclMode": true,
+    "ModelName": "325kW 12.7l Engine",
+    "Displacement": "12740",
+    "IdlingSpeed": 600.0,
+    "Inertia": 5.1498,
+    "Fuels": [
+      {
+        "WHTC-Urban": 1.04,
+        "WHTC-Rural": 1.01,
+        "WHTC-Motorway": 1.0,
+        "WHTC-Engineering": 1.0,
+        "ColdHotBalancingFactor": 1.0,
+        "CFRegPer": 1.0,
+        "FuelMap": "325kW.vmap",
+        "FuelType": "DieselCI"
+      }
+    ],
+    "RatedPower": 325000.0,
+    "RatedSpeed": 1800.0,
+    "MaxTorque": 2400.0,
+    "FullLoadCurve": "325kW.vfld",
+    "WHRType": [
+      "None"
+    ],
+    "WHRCorrectionFactors": {}
+  }
+}
