@@ -57,31 +57,49 @@ def main():
     print(f"DEBUG: V_nom={v_nom:.2f} V, Cap={cap_kwh:.2f} kWh, Q_max={q_max_as:.2f} As")
 
     # --- P-ECMS Strategy Selection ---
-    # Options: 'LINEAR', 'GRAVITY', 'ENERGY'
-    STRATEGY = 'GRAVITY' 
+    # --- Strategy Selection ---
+    # Options: 'ECMS', 'A-ECMS', 'LINEAR', 'GRAVITY', 'ENERGY'
+    STRATEGY = 'A-ECMS' 
     
     # Imports
     sys.path.append(os.path.join(base_dir, 'P_ECMS')) 
+    sys.path.append(os.path.join(base_dir, 'A_ECMS_Implementation'))
+    
     from P_ECMS.horizon_predictor import HorizonPredictor
     from P_ECMS.energy_supervisor import EnergyBalanceSupervisor
     from P_ECMS.linear_supervisor import LinearSupervisor
     from P_ECMS.gravity_supervisor import GravitySupervisor
+    from A_ECMS_Implementation.aecms_controller import AECMS_Controller
 
     predictor = HorizonPredictor(cycle_df) 
     total_dist = predictor.dist_arr[-1]
     
     supervisor = None
     
-    if STRATEGY == 'LINEAR':
-        print("Strategy: Normal P-ECMS (Linear Reference)")
+    # 1. Standard ECMS (Fixed)
+    if STRATEGY == 'ECMS':
+        print("Strategy: Standard ECMS (Fixed Factors)")
+        # Base Controller already initialized above
+        pass 
+        
+    # 2. A-ECMS (Adaptive Proportional)
+    elif STRATEGY == 'A-ECMS':
+        print("Strategy: A-ECMS (Proportional Feedback)")
+        # Replace base controller with Adaptive one
+        # Uses tuned gains K_dis=20, K_chg=10.1 from calibration
+        controller = AECMS_Controller(truck, kp_dis=16.5, kp_chg=2, target_soc=target_soc)
+        
+    # 3. P-ECMS Variants (Supervisor + Base Controller)
+    elif STRATEGY == 'LINEAR':
+        print("Strategy: P-ECMS (Linear Reference)")
         supervisor = LinearSupervisor(truck, controller, total_dist, q_max_as, start_soc=target_soc, end_soc=target_soc)
         
     elif STRATEGY == 'GRAVITY':
-        print("Strategy: Gravity-Aware P-ECMS (K_grav=0.0003)")
+        print("Strategy: P-ECMS (Gravity-Aware, K=0.0003)")
         supervisor = GravitySupervisor(truck, controller, total_dist, q_max_as, start_soc=target_soc, end_soc=target_soc, k_grav=0.0003)
         
     elif STRATEGY == 'ENERGY':
-        print("Strategy: Energy Balance P-ECMS (Potential Energy)")
+        print("Strategy: P-ECMS (Energy Balance)")
         supervisor = EnergyBalanceSupervisor(truck, controller, total_dist, q_max_as, start_soc=target_soc, end_soc=target_soc)
         
     else:
@@ -124,25 +142,28 @@ def main():
         dt = dts[i]
             
 
-        # --- P-ECMS Update (Every 3s or 3 steps?) ---
-        if i % 3 == 0:
-            # Get Horizon
-            horizon = predictor.get_horizon(i)
-            # Get Optimal s
-            curr_dist = predictor.dist_arr[i]
+        # --- Update Logic ---
+        if supervisor is not None:
+             # P-ECMS Update (Every 3 steps)
+            if i % 3 == 0:
+                horizon = predictor.get_horizon(i)
+                curr_dist = predictor.dist_arr[i]
+                
+                # Unpack target
+                opt_s, curr_target = supervisor.get_optimal_s(curr_dist, soc, horizon)
+                
+                # Update Controller
+                controller.s_dis = opt_s
+                controller.s_chg = opt_s * (1.9950 / 2.0886) # maintain ratio
+        else:
+            # ECMS / A-ECMS
+            curr_target = target_soc # Constant target for plotting
             
-            # Unpack target
-            opt_s, curr_target = supervisor.get_optimal_s(curr_dist, soc, horizon)
+        # Logging print
+        if i % 1000 == 0:
+            print(f"Step {i}: s={controller.s_dis:.4f}, SOC={soc:.4f}, Target={curr_target:.4f}")
             
-            # Update Controller
-            controller.s_dis = opt_s
-            controller.s_chg = opt_s * (1.9950 / 2.0886) # maintain ratio
-            
-            # Print occasionally
-            if i % 1000 == 0:
-                print(f"Step {i}: s_opt={opt_s:.4f}, SOC={soc:.4f}, Target={curr_target:.4f}")
-            
-        # Call Controller (Now uses updated s)
+        # Call Controller (Uses updated or internal s)
         t_eng, t_mot, h_cost_watts, p_chem_watts, fuel_g_s = controller.decide_split(tr, rpm, soc)
         
         # Store s and target
@@ -182,63 +203,56 @@ def main():
         total_fuel_g += fuel_g_s * dt
         
     print("Simulation Complete.")
-    print(f"Total Fuel Consumed (Hybrid): {total_fuel_g/1000:.2f} kg")
+    # --- Plotting ---
+    fig, axes = plt.subplots(4, 1, figsize=(10, 15), sharex=True)
     
-    # Baseline comparison 
-    if 'FC-Map [g/h]' in cycle_df.columns:
-        base_fuel_rate = cycle_df['FC-Map [g/h]'].fillna(0).values / 3600.0
-        dt_arr = np.diff(times, prepend=times[0]) 
-        total_base_g = np.sum(base_fuel_rate * dt_arr)
-        print(f"Baseline Fuel (VECTO): {total_base_g/1000:.2f} kg")
-        savings = (1 - total_fuel_g/total_base_g) * 100.0
-        print(f"Potential Savings: {savings:.2f}%")
-        print(f"Final SOC: {soc:.4f}")
-        
-    # Plotting
-    fig, axs = plt.subplots(3, 1, figsize=(10, 12), sharex=True)
+    # 1. Velocity & Altitude
+    axes[0].plot(results['time'], cycle_df['velocity_kmh'], label='Speed [km/h]', color='black')
+    axes[0].set_ylabel('Speed [km/h]')
+    axes[0].set_title(f'Strategy: {STRATEGY} | Fuel: {total_fuel_g/1000:.2f} kg')
+    axes[0].grid(True)
     
-    # Top: Speed & Altitude
-    ax1 = axs[0]
-    ax1.plot(results['time'], cycle_df['velocity_kmh'], 'b-', label='Speed [km/h]')
-    ax1.set_ylabel('Speed [km/h]', color='b')
-    ax1.tick_params(axis='y', labelcolor='b')
-    
-    # Altitude if available
+    # Twin axis for Altitude
     if 'altitude_m' in cycle_df.columns:
-        ax2 = ax1.twinx()
-        ax2.plot(results['time'], cycle_df['altitude_m'], 'g--', label='Altitude', alpha=0.5)
-        ax2.set_ylabel('Altitude [m]', color='g')
-        ax2.tick_params(axis='y', labelcolor='g')
+        ax0_alt = axes[0].twinx()
+        ax0_alt.plot(results['time'], cycle_df['altitude_m'], label='Altitude [m]', color='gray', alpha=0.5, linestyle='--')
+        ax0_alt.set_ylabel('Altitude [m]', color='gray')
     
-    ax1.set_title("Driving Cycle")
+    # 2. SOC
+    axes[1].plot(results['time'], np.array(results['soc']) * 100, label='SOC [%]', color='blue')
+    axes[1].plot(results['time'], np.array(results['soc_target']) * 100, label='Target SOC [%]', color='red', linestyle='--')
+    axes[1].set_ylabel('SOC [%]')
+    axes[1].legend(loc='upper right')
+    axes[1].grid(True)
     
-    # Middle: Torque Split
-    ax3 = axs[1]
-    ax3.plot(results['time'], results['t_ice'], 'r', label='Engine Torque', linewidth=1)
-    ax3.plot(results['time'], results['t_em'], 'c', label='Motor Torque', linewidth=1)
-    ax3.plot(results['time'], t_reqs, 'k--', label='Total Req', alpha=0.3)
-    ax3.set_ylabel('Torque [Nm]')
-    ax3.legend()
-    ax3.set_title("Torque Split (ECMS)")
+    # 3. Torque
+    axes[2].plot(results['time'], results['t_ice'], label='Engine Torque', color='red', alpha=0.7)
+    axes[2].plot(results['time'], results['t_em'], label='Motor Torque', color='green', alpha=0.7)
+    axes[2].set_ylabel('Torque [Nm]')
+    axes[2].legend(loc='upper right')
+    axes[2].grid(True)
     
-    # Bottom: SOC
-    ax4 = axs[2]
-    ax4.plot(results['time'], np.array(results['soc']) * 100, 'm-', label='SOC [%]')
-    # Plot Dynamic Target
-    if len(results['soc_target']) == len(results['time']):
-        ax4.plot(results['time'], np.array(results['soc_target']) * 100, 'r--', label='SOC Target (Energy Balance)', linewidth=2)
-    else:
-        ax4.axhline(y=target_soc*100, color='k', linestyle='--', label='Target')
-        
-    ax4.set_ylabel('SOC [%]')
-    ax4.set_xlabel('Time [s]')
-    ax4.grid(True)
-    ax4.legend()
-    ax4.set_title("Battery State of Charge")
+    # 4. Equivalence Factor (s)
+    axes[3].plot(results['time'], results['s_factor'], label='Equiv Factor (s)', color='purple')
+    for y in [2.0886, 2.40]: # Visual reference lines
+        axes[3].axhline(y, color='gray', linestyle=':', alpha=0.5)
+    axes[3].set_ylabel('s [-]')
+    axes[3].set_xlabel('Time [s]')
+    axes[3].legend(loc='upper right')
+    axes[3].grid(True)
     
     plt.tight_layout()
     plt.savefig('ecms_results.png')
     print("Plot saved to ecms_results.png")
+    
+    # Compare with Baseline
+    baseline_fuel_kg = 36.55 # VECTO Reference
+    fuel_kg = total_fuel_g / 1000.0
+    savings = (1 - fuel_kg/baseline_fuel_kg) * 100
+    print(f"Total Fuel Consumed (Hybrid): {fuel_kg:.2f} kg")
+    print(f"Baseline Fuel (VECTO): {baseline_fuel_kg:.2f} kg")
+    print(f"Potential Savings: {savings:.2f}%")
+    print(f"Final SOC: {soc:.4f}")
 
 if __name__ == "__main__":
     main()
