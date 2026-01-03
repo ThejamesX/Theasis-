@@ -248,8 +248,7 @@ class DPOptimizer:
     def _calc_current_plant_match(self, u_oc, r_bat, p_elec_kw):
         # Match p2_hybrid.py sign convention
         p_bat_watts = p_elec_kw * 1000.0
-        p_bat_eqn = -1.0 * p_bat_watts  # <--- CRITICAL FLIP
-        
+        p_bat_eqn = -1.0 * p_bat_watts  
         # Discriminant
         discriminant = u_oc**2 - 4 * r_bat * p_bat_eqn
         
@@ -257,7 +256,7 @@ class DPOptimizer:
         
         # Calculate I
         sqrt_d = np.sqrt(np.maximum(0, discriminant))
-        i_bat = (-u_oc + sqrt_d) / (2 * r_bat) # <--- CRITICAL ROOT SELECTION
+        i_bat = (-u_oc + sqrt_d) / (2 * r_bat) 
         
         return i_bat, mask_feas
 

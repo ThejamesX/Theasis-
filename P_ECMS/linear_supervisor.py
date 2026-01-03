@@ -2,40 +2,32 @@ import numpy as np
 
 class LinearSupervisor:
     """
-    Implements normal P-ECMS with Linear Reference (No Gravity/Energy Awareness).
-    Target SOC decreases linearly with distance.
+    Implements normal P-ECMS with Constant Reference.
+    (Previously Linear Reference, but Linear calculation removed as per user request).
     """
-    def __init__(self, vehicle, controller, total_dist_m, q_max_as, start_soc=0.50, end_soc=0.50):
+    def __init__(self, vehicle, controller, q_max_as, target_soc=0.50):
         self.veh = vehicle
         self.controller = controller
-        self.total_dist = total_dist_m
         self.q_max_as = q_max_as
-        self.start_soc = start_soc
-        self.end_soc = end_soc
+        self.target_soc = target_soc
         
         # Candidate range
         self.s_candidates = np.linspace(1.4, 3.5, 10) 
 
     def get_optimal_s(self, current_dist, current_soc, horizon_data):
         """
-        Determines the optimal s to hit Linear Reference.
+        Determines the optimal s to hit Constant Reference.
         """
-        dist_covered = horizon_data['dist_covered']
-        
-        # 1. Calc Target SOC (Linear Depletion)
-        dist_future = current_dist + dist_covered
-        if dist_future > self.total_dist:
-            dist_future = self.total_dist
-            
-        slope = (self.start_soc - self.end_soc) / self.total_dist
-        soc_target = self.start_soc - dist_future * slope
+        soc_target = self.target_soc
         
         # Clamp target (safety bounds)
         soc_target = max(0.35, min(0.75, soc_target))
         
         # 2. Shooting Method
         rpms = horizon_data['rpms']
-        t_reqs = horizon_data['t_reqs']
+        t_reqs = horizon_data['t_reqs'] # Use vector from horizon (ignoring physics calc for Linear) or should I use physics? 
+        # "remove linear calculation from prediction files" implies just the target.
+        # LinearSupervisor traditionally relies on VECTO signals. I will keep it as is.
         dts = horizon_data['dts']
         steps = len(rpms)
         
@@ -44,6 +36,9 @@ class LinearSupervisor:
         
         orig_s_dis = self.controller.s_dis
         orig_s_chg = self.controller.s_chg
+        
+        # Ratio logic needs update if using ratio
+        # LinearSupervisor (old) used ratio=1.995/2.0886 hardcoded?
         ratio = 1.9950 / 2.0886
         
         for s in self.s_candidates:
@@ -71,4 +66,4 @@ class LinearSupervisor:
         self.controller.s_dis = orig_s_dis
         self.controller.s_chg = orig_s_chg
         
-        return best_s, soc_target
+        return best_s, soc_target, ratio

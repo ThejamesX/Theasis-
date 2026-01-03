@@ -3,60 +3,81 @@ import numpy as np
 class GravitySupervisor:
     """
     Implements P-ECMS with Gravity Awareness (Altitude Look-Ahead).
-    Target SOC = Linear_Ref + K_grav * (Alt_future_avg - Alt_current)
+    Optimized for Real-Time execution using Local Neighborhood Search.
+    
+    Target SOC = Base_Target + K_grav * (Alt_future_avg - Alt_current)
     """
-    def __init__(self, vehicle, controller, total_dist_m, q_max_as, start_soc=0.50, end_soc=0.50, k_grav=2.5e-4):
+    def __init__(self, vehicle, controller, q_max_as, target_soc=0.50, k_grav=2.5e-4):
         self.veh = vehicle
         self.controller = controller
-        self.total_dist = total_dist_m
         self.q_max_as = q_max_as
-        self.start_soc = start_soc
-        self.end_soc = end_soc
+        self.target_soc = target_soc
         self.k_grav = k_grav
         
-        self.s_candidates = np.linspace(1.4, 3.5, 10) 
+        # Optimization State Memory
+        self.last_opt_s = self.controller.s_dis 
+        
+        # Pre-calculate Charge/Discharge Ratio
+        if self.controller.s_dis != 0:
+            self.ratio = self.controller.s_chg / self.controller.s_dis
+        else:
+            self.ratio = 0.95 
+            
+        # Optimization Parameters
+        self.delta_s = 0.05
+        self.s_min = 1.4
+        self.s_max = 3.5
 
     def get_optimal_s(self, current_dist, current_soc, horizon_data):
         dist_covered = horizon_data['dist_covered']
         
-        # 1. Base Linear Target
-        dist_future = current_dist + dist_covered
-        if dist_future > self.total_dist: dist_future = self.total_dist
-            
-        slope = (self.start_soc - self.end_soc) / self.total_dist
-        soc_target = self.start_soc - dist_future * slope
+        # 1. Update Target SOC with Gravity Adjustment
         
-        # 2. Gravity Adjustment
+        # Base
+        soc_target = self.target_soc 
+        
+        # Gravity Adj
         if 'alts' in horizon_data and len(horizon_data['alts']) > 0:
             alts = horizon_data['alts']
             alt_curr = alts[0]
             alt_avg = np.mean(alts)
-            delta_alt = alt_curr - alt_avg
-            
-            soc_adj = self.k_grav * delta_alt
-            soc_target -= soc_adj
+             # Logic from PECMS update (User confirmed "Same logic")
+             # soc_adj = k * (avg - curr)
+            soc_adj = self.k_grav * (alt_avg - alt_curr)
+            soc_target += soc_adj
         
-        # Clamp
+        # Clamp Target SOC
         soc_target = max(0.35, min(0.75, soc_target))
         
-        # 3. Shooting Method
+        # 2. Local Search Candidates
+        candidates = [
+            self.last_opt_s - 2 * self.delta_s,
+            self.last_opt_s - 1 * self.delta_s,
+            self.last_opt_s,
+            self.last_opt_s + 1 * self.delta_s,
+            self.last_opt_s + 2 * self.delta_s
+        ]
+        
         rpms = horizon_data['rpms']
         t_reqs = horizon_data['t_reqs']
         dts = horizon_data['dts']
         steps = len(rpms)
         
-        best_s = self.controller.s_dis
+        best_s = self.last_opt_s
         min_error = float('inf')
         
         orig_s_dis = self.controller.s_dis
         orig_s_chg = self.controller.s_chg
-        ratio = 1.9950 / 2.0886
         
-        for s in self.s_candidates:
+        for s in candidates:
+            if s < self.s_min: s = self.s_min
+            if s > self.s_max: s = self.s_max
+            
             sim_soc = current_soc
             self.controller.s_dis = s
-            self.controller.s_chg = s * ratio
+            self.controller.s_chg = s * self.ratio
             
+            sim_valid = True
             for k in range(steps):
                 try:
                     res = self.controller.decide_split(t_reqs[k], rpms[k], sim_soc)
@@ -65,16 +86,19 @@ class GravitySupervisor:
                     i_bat = p_chem / u_oc
                     d_soc = - (i_bat * dts[k]) / self.q_max_as
                     sim_soc += d_soc
-                except:
-                    sim_soc = -999
+                except Exception:
+                    sim_valid = False
                     break
             
-            error = abs(sim_soc - soc_target)
-            if error < min_error:
-                min_error = error
-                best_s = s
+            if sim_valid:
+                error = abs(sim_soc - soc_target)
+                if error < min_error:
+                    min_error = error
+                    best_s = s
         
         self.controller.s_dis = orig_s_dis
         self.controller.s_chg = orig_s_chg
         
-        return best_s, soc_target
+        self.last_opt_s = best_s
+        
+        return best_s, soc_target, self.ratio

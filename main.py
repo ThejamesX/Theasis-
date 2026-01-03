@@ -46,7 +46,6 @@ def main():
     target_soc = 0.50
     # Q_LHV = 42700 J/g
     controller = ECMS_Controller(truck, q_lhv=42700.0) 
-    rule_based_controller = None # RuleBasedController(truck) <- File deleted by user
     
     # Capacity handling strictly
     # VECTO "Capacity" is typically kWh.
@@ -58,21 +57,24 @@ def main():
 
     # --- P-ECMS Strategy Selection ---
     # --- Strategy Selection ---
-    # Options: 'ECMS', 'A-ECMS', 'LINEAR', 'GRAVITY', 'ENERGY'
-    STRATEGY = 'A-ECMS' 
+    # Options: 'ECMS', 'A-ECMS', 'LINEAR', 'GRAVITY', 'ENERGY', 'PECMS'
+    STRATEGY = 'PECMS' 
     
     # Imports
     sys.path.append(os.path.join(base_dir, 'P_ECMS')) 
     sys.path.append(os.path.join(base_dir, 'A_ECMS_Implementation'))
     
     from P_ECMS.horizon_predictor import HorizonPredictor
+    from P_ECMS.new_horizon_predictor import NewHorizonPredictor
     from P_ECMS.energy_supervisor import EnergyBalanceSupervisor
     from P_ECMS.linear_supervisor import LinearSupervisor
     from P_ECMS.gravity_supervisor import GravitySupervisor
+    from P_ECMS.pecms_supervisor import PECMS_Supervisor
+    from P_ECMS.pecms_supervisor import PECMS_Supervisor
     from A_ECMS_Implementation.aecms_controller import AECMS_Controller
 
+    # Default Predictor (can be overwritten)
     predictor = HorizonPredictor(cycle_df) 
-    total_dist = predictor.dist_arr[-1]
     
     supervisor = None
     
@@ -86,25 +88,33 @@ def main():
     elif STRATEGY == 'A-ECMS':
         print("Strategy: A-ECMS (Proportional Feedback)")
         # Replace base controller with Adaptive one
-        # Uses tuned gains K_dis=20, K_chg=10.1 from calibration
-        controller = AECMS_Controller(truck, kp_dis=16.5, kp_chg=2, target_soc=target_soc)
-        
+        controller = AECMS_Controller(truck, kp_dis=16.5, kp_chg=2, target_soc=target_soc)  
     # 3. P-ECMS Variants (Supervisor + Base Controller)
+        # Use New PECMS Supervisor (Updated Init)
+    elif STRATEGY == 'PECMS':
+        print("Strategy: P-ECMS (Constant Reference)") 
+        # Hardcoded Initial EF
+        controller.s_dis = 2.3395
+        controller.s_chg = 1.7538
+        predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
+        supervisor = PECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
     elif STRATEGY == 'LINEAR':
-        print("Strategy: P-ECMS (Linear Reference)")
-        supervisor = LinearSupervisor(truck, controller, total_dist, q_max_as, start_soc=target_soc, end_soc=target_soc)
+        print("Strategy: P-ECMS (Constant Reference)")
+        supervisor = LinearSupervisor(truck, controller, q_max_as, target_soc=target_soc)
         
     elif STRATEGY == 'GRAVITY':
         print("Strategy: P-ECMS (Gravity-Aware, K=0.0003)")
-        supervisor = GravitySupervisor(truck, controller, total_dist, q_max_as, start_soc=target_soc, end_soc=target_soc, k_grav=0.0003)
+        supervisor = GravitySupervisor(truck, controller, q_max_as, target_soc=target_soc, k_grav=0.0003)
         
     elif STRATEGY == 'ENERGY':
         print("Strategy: P-ECMS (Energy Balance)")
-        supervisor = EnergyBalanceSupervisor(truck, controller, total_dist, q_max_as, start_soc=target_soc, end_soc=target_soc)
+        supervisor = EnergyBalanceSupervisor(truck, controller, q_max_as, target_soc=target_soc)
         
     else:
         raise ValueError(f"Unknown Strategy: {STRATEGY}")
     
+    total_dist = predictor.dist_arr[-1]
+
     # Storage
     results = {
         'time': cycle_df['time'].values,
@@ -144,17 +154,18 @@ def main():
 
         # --- Update Logic ---
         if supervisor is not None:
-             # P-ECMS Update (Every 3 steps)
+             # P-ECMS Update (Every 3 steps? Or every step for accuracy? P-ECMS typically periodic)
+             # Let's keep every 3 steps to save compute, matches legacy
             if i % 3 == 0:
                 horizon = predictor.get_horizon(i)
                 curr_dist = predictor.dist_arr[i]
                 
                 # Unpack target
-                opt_s, curr_target = supervisor.get_optimal_s(curr_dist, soc, horizon)
+                opt_s, curr_target, ratio = supervisor.get_optimal_s(curr_dist, soc, horizon)
                 
                 # Update Controller
                 controller.s_dis = opt_s
-                controller.s_chg = opt_s * (1.9950 / 2.0886) # maintain ratio
+                controller.s_chg = opt_s * ratio # maintain ratio
         else:
             # ECMS / A-ECMS
             curr_target = target_soc # Constant target for plotting
@@ -184,7 +195,7 @@ def main():
         # Protect div zero? Voc won't be 0.
         i_bat = p_chem_watts / v_oc
         
-        # Eq 13: dot_soc = - i_bat / Q_max
+        # Eq 13: dot_soc = - i_bat / q_max_as
         dot_soc = - i_bat / q_max_as
         
         soc = soc + dot_soc * dt
