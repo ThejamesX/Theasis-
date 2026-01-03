@@ -39,7 +39,7 @@ class PECMS_Supervisor:
         self.last_opt_s = self.s_dis_0
         
         # Params (Bounds)
-        self.delta_s = 0.05
+        self.delta_s = 0.025
         
         # "min 1.6 for charge and max 2.6 for discharge based on the ratio"
         # s_chg >= 1.6  =>  s_dis * ratio >= 1.6  =>  s_dis >= 1.6 / ratio
@@ -49,69 +49,75 @@ class PECMS_Supervisor:
 
     def calculate_horizon_energy_delta(self, horizon_data):
         """
-        Vypočítá čistou změnu SoC, kterou získáme/ztratíme překonáním
-        topografie horizontu, čistě na základě potenciální energie.
+        Vrací 'adjustment' (úpravu) pro Target SOC.
+        Rozlišuje fázi PŘÍPRAVY (před kopcem/sjezdem) a fázi AKCE (v kopci/sjezdu).
         """
-        # 1. Získání dat
-        grades = horizon_data.get('grades', []) # v radiánech nebo tan (slope)
-        dists = horizon_data.get('dists', [])   # vzdálenosti segmentů [m]
+        # 1. Načtení dat
+        grades = horizon_data.get('grades', [])
+        dists = horizon_data.get('dists', [])
         vels = horizon_data.get('vel_kmh', []) / 3.6
         
-        if len(grades) == 0:
-            return 0.0
+        if len(grades) == 0: return 0.0
 
-        # 2. Výpočet převýšení (Delta H)
-        # dh = sin(arctan(grade)) * distance  ~= grade * distance (pro malé úhly)
-        # Lepší je integrovat přes segmenty
+        # 2. Analýza Horizontu (Budoucnost)
         delta_h_total = 0.0
-        # Pokud máš v horizon_data přímo nadmořskou výšku 'alts', použij: alts[-1] - alts[0]
-        # Pokud ne, integrujeme sklon:
         for i in range(len(grades)):
-            dist_step = vels[i] * horizon_data['dts'][i] # nebo dists[i] pokud je k dispozici
-            # grade je tan(alpha), pro malé úhly je sin ~ tan
-            dh = grades[i] * dist_step 
-            delta_h_total += dh
+            dist_step = vels[i] * horizon_data['dts'][i] 
+            delta_h_total += grades[i] * dist_step
 
-        # 3. Fyzikální konstanty
-        # Gravitační zrychlení
+        # 3. Analýza Aktuálního stavu (Přítomnost)
+        # Podíváme se hned před auto (prvních 50-100 metrů nebo první segment)
+        current_grade = grades[0] 
+        
+        # Thresholdy pro detekci "Jsem v kopci/sjezdu"
+        UPHILL_THRESHOLD = 0.015  # 1.5% stoupání
+        DOWNHILL_THRESHOLD = -0.015 # -1.5% klesání
+
+        # 4. Výpočet velikosti změny (Magnitude)
+        # Kolik % SOC odpovídá energii kopce?
         g = 9.81
-        # Hmotnost (kg)
-        m = self.mass 
+        m = self.mass
+        e_pot = m * g * abs(delta_h_total) # Vždy kladná velikost energie
         
-        # Potenciální energie [J]
-        # Pokud delta_h < 0 (jedeme dolů), E_pot je záporná (energie se uvolňuje)
-        e_pot_joules = m * g * delta_h_total
-        
-        # 4. Konverze na SoC
-        # Musíme odhadnout účinnost. 
-        # Když brzdíme (delta_h < 0), získáváme energii * účinnost.
-        # Když táhneme (delta_h > 0), ztrácíme energii / účinnost.
-        
-        eta_recup = 0.80 # Odhad účinnosti rekuperace (zahrnuje aero odpor, pneu, motor)
-        eta_trac = 0.90  # Odhad účinnosti trakce
-        
-        nominal_voltage = 650.0 # ! DŮLEŽITÉ: Změň podle tvého modelu (např. self.veh.v_nom)
+        nominal_voltage = 681.29 
         total_capacity_joules = self.q_max_as * nominal_voltage
         
-        delta_soc = 0.0
+        # Hrubý odhad změny SOC (bez účinnosti pro zjednodušení logiky směru)
+        # Účinnost doladíme v k_slope v hlavním kontroléru
+        raw_soc_change = e_pot / total_capacity_joules
         
-        if delta_h_total < 0:
-            # Sjezd -> Získáváme energii (Rekuperace)
-            # e_pot je záporné, chceme kladné delta_soc
-            energy_recovered = -e_pot_joules * eta_recup 
-            # Ale pozor: Část energie sežere odpor vzduchu a valivý odpor!
-            # Pro P-ECMS je bezpečnější brát jen "Potenciální" složku,
-            # protože odpor vzduchu se počítá v cost function.
-            # Zde chceme jen vědět "jak moc se změní terén".
-            
-            delta_soc = energy_recovered / total_capacity_joules
-            
-        else:
-            # Výjezd -> Spotřebováváme energii
-            energy_needed = e_pot_joules / eta_trac
-            delta_soc = - (energy_needed / total_capacity_joules)
+        # Omezovač (aby target neulétl o 50%)
+        raw_soc_change = min(0.20, raw_soc_change) 
 
-        return delta_soc
+        # 5. ROZHODOVACÍ STROM (THE LOGIC CORE)
+        adjustment = 0.0
+
+        if delta_h_total > 0:
+            # === BUDOUCNOST: KOPEC (Spotřeba) ===
+            
+            if current_grade > UPHILL_THRESHOLD:
+                # FÁZE 4: UŽ JSME V KOPCI
+                # Chceme energii použít -> Target DOLŮ
+                adjustment = -raw_soc_change
+            else:
+                # FÁZE 3: BLÍŽÍME SE KE KOPCI (jsme na rovině)
+                # Chceme se připravit -> Target NAHORU
+                adjustment = raw_soc_change
+                
+        else:
+            # === BUDOUCNOST: SJEZD (Zisk energie) ===
+            
+            if current_grade < DOWNHILL_THRESHOLD:
+                # FÁZE 2: UŽ JSME VE SJEZDU (To je tvůj požadavek!)
+                # Chceme maximalizovat nabíjení -> Target NAHORU
+                # (Aby regulátor viděl chybu a tlačil do baterky)
+                adjustment = raw_soc_change 
+            else:
+                # FÁZE 1: BLÍŽÍME SE K SJEZDU
+                # Chceme udělat místo -> Target DOLŮ
+                adjustment = -raw_soc_change
+
+        return adjustment
 
     def get_optimal_target_soc(self, current_soc, horizon_data):
         """
@@ -131,7 +137,7 @@ class PECMS_Supervisor:
         
         # 3. Kolik metrů budeme klesat? (Maximalizujeme rekuperaci)
         # Hledáme "max drop" - tedy rozdíl mezi námi a dnem údolí před námi.
-        drop_height = current_alt - min_alt_in_horizon
+        drop_height =  current_alt - min_alt_in_horizon 
         
         # Pokud je drop_height záporné (jen stoupáme), je to 0.
         drop_height = max(0.0, drop_height)
@@ -145,7 +151,7 @@ class PECMS_Supervisor:
         # Účinnost: Ne všechna potenciální energie skončí v baterii.
         # Odpor vzduchu, valivý odpor, účinnost měniče...
         # Pro Target Generator buď konzervativní (např. 0.6 - 0.7)
-        eta_total_recup = 0.65 
+        eta_total_recup = 0.80
         nominal_voltage = 681.29
         e_batt_cap_joules = self.q_max_as * nominal_voltage # Celková kapacita J
         
@@ -178,10 +184,12 @@ class PECMS_Supervisor:
         dist_covered = horizon_data['dist_covered']
 
         calculate_horizon_energy_delta = self.calculate_horizon_energy_delta(horizon_data)
+        optimal_target_soc = self.get_optimal_target_soc(current_soc, horizon_data)
         
         # 1. Update Target SOC with Slope Adjustment
-        soc_adj = self.k_slope * calculate_horizon_energy_delta
+        soc_adj = 0.25 * calculate_horizon_energy_delta
         soc_target = self.soc_nominal + soc_adj
+        
     
         soc_target = max(0.35, min(0.75, soc_target))
         
