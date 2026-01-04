@@ -95,7 +95,7 @@ class DPOptimizer:
         # Pre-calc Physics constants
         # Dynamic Capacity from file (kWh) -> Coulombs (As)
         # FORCE SMALL BATTERY (14 kWh) as per Sync Request
-        cap_kwh = 14.0 
+        cap_kwh = self.truck.bat_params.get('Capacity', 120.0) 
         v_nom = self.truck.get_ocv(0.5)
         cap_coulombs = (cap_kwh * 3.6e6) / v_nom 
         q_max = cap_coulombs
@@ -272,7 +272,7 @@ class DPOptimizer:
         t_eng_hist = []
         total_fuel = 0.0
         
-        cap_kwh = 120 # Forced Small Battery
+        cap_kwh = self.truck.bat_params.get('Capacity', 120.0)
         v_nom = self.truck.get_ocv(0.5)
         cap_coulombs = (cap_kwh * 3.6e6) / v_nom
         
@@ -291,13 +291,21 @@ class DPOptimizer:
             w_rpm = self.rpms[k]
             
             # Physics
-            p_el = float(self.truck.em_eff_interp([[w_rpm, t_mot]]))
+            val_eff = self.truck.em_eff_interp([[w_rpm, t_mot]])
+            if hasattr(val_eff, "item"): val_eff = val_eff.item()
+            p_el = float(val_eff)
+
             if np.isnan(p_el) and t_mot == 0: p_el = 0.0
             
             # Use Helper
-            voc = float(self.truck.ocv_curve([soc_curr * 100]))
+            voc = self.truck.ocv_curve([soc_curr * 100])
+            if hasattr(voc, "item"): voc = voc.item()
+            voc = float(voc)
+
             if self.truck.r_int_curve:
-                r = float(self.truck.r_int_curve([soc_curr * 100]))
+                r = self.truck.r_int_curve([soc_curr * 100])
+                if hasattr(r, "item"): r = r.item()
+                r = float(r)
             else:
                 r = self.truck.fallback_r_int
             
@@ -312,7 +320,10 @@ class DPOptimizer:
             soc_next = soc_curr + dSOC
             
             t_eng = t_req - t_mot
-            fuel = float(self.truck.fuel_interp([[w_rpm, t_eng]])) * dt
+            
+            val_fuel = self.truck.fuel_interp([[w_rpm, t_eng]])
+            if hasattr(val_fuel, "item"): val_fuel = val_fuel.item()
+            fuel = float(val_fuel) * dt
             if np.isnan(fuel): fuel = 0.0
             
             total_fuel += fuel

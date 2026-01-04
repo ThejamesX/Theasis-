@@ -7,11 +7,16 @@ from vecto_loader import VectoLoader
 from p2_hybrid import P2HybridTruck
 from ecms_controller import ECMS_Controller
 
-def main():
+def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.0, output_prefix='ecms'):
     # 1. Paths
     # Using absolute paths as requested or safer relative if running from root
-    base_dir = "/root/ECMS_Python"
-    vmod_path = os.path.join(base_dir, "Driving Cycle/Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod")
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    if cycle_file:
+        vmod_path = cycle_file
+    else:
+        vmod_path = os.path.join(base_dir, "Driving Cycle/Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod")
+        
     vmap_path = os.path.join(base_dir, "Engine/325kW.vmap")
     vem_path = os.path.join(base_dir, "Emotor/P2_Group5_EM.vem")
     # Note: "EM_Map - kopie.vemo" might be tricky with spaces if not handled well, but python open() handles it.
@@ -25,19 +30,21 @@ def main():
     loader = VectoLoader()
     truck = P2HybridTruck(loader)
     
-    print("Loading components...")
+    print(f"--- Running {strategy} | Cap: {bat_capacity_kwh} kWh | Cycle: {os.path.basename(vmod_path)} ---")
     # Pass resistance path (it handles if missing)
     truck.load_components(vmap_path, vemo_path, vem_path, vreess_path, vbatv_path, vbatr_path)
     
+    # Override Capacity
+    if bat_capacity_kwh is not None:
+        truck.bat_params['Capacity'] = float(bat_capacity_kwh)
+
     # 3. Load Cycle
-    print("Loading Driving Cycle...")
     cycle_df = loader.read_vmod(vmod_path)
     if cycle_df is None:
         print("Failed to load cycle.")
-        return
+        return None
 
     # 4. Backward Physics
-    print("Calculating Physics...")
     # Add T_req column to cycle vector
     t_req = truck.calc_backward_physics(cycle_df)
     cycle_df['t_req_hybrid_in'] = t_req
@@ -53,12 +60,12 @@ def main():
     v_nom = truck.ocv_curve(50).item() # 50% SOC voltage
     cap_kwh = truck.bat_params.get('Capacity', 120.0)
     q_max_as = (cap_kwh * 3.6e6) / v_nom
-    print(f"DEBUG: V_nom={v_nom:.2f} V, Cap={cap_kwh:.2f} kWh, Q_max={q_max_as:.2f} As")
+    # print(f"DEBUG: V_nom={v_nom:.2f} V, Cap={cap_kwh:.2f} kWh, Q_max={q_max_as:.2f} As")
 
     # --- P-ECMS Strategy Selection ---
     # --- Strategy Selection ---
     # Options: 'ECMS', 'A-ECMS', 'LINEAR', 'GRAVITY', 'ENERGY', 'PECMS'
-    STRATEGY = 'PECMS' 
+    STRATEGY = strategy
     
     # Imports
     sys.path.append(os.path.join(base_dir, 'P_ECMS')) 
@@ -80,41 +87,39 @@ def main():
     
     # 1. Standard ECMS (Fixed)
     if STRATEGY == 'ECMS':
-        print("Strategy: Standard ECMS (Fixed Factors)")
+        # print("Strategy: Standard ECMS (Fixed Factors)")
         # Base Controller already initialized above
         pass 
         
     # 2. A-ECMS (Adaptive Proportional)
     elif STRATEGY == 'A-ECMS':
-        print("Strategy: A-ECMS (Proportional Feedback)")
+        # print("Strategy: A-ECMS (Proportional Feedback)")
         # Replace base controller with Adaptive one
         controller = AECMS_Controller(truck, kp_dis=16.5, kp_chg=2, target_soc=target_soc)  
     # 3. P-ECMS Variants (Supervisor + Base Controller)
         # Use New PECMS Supervisor (Updated Init)
     elif STRATEGY == 'PECMS':
-        print("Strategy: P-ECMS (Constant Reference)") 
+        # print("Strategy: P-ECMS (Constant Reference)") 
         # Hardcoded Initial EF
         controller.s_dis = 2.3395
         controller.s_chg = 1.7538
         predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
         supervisor = PECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
     elif STRATEGY == 'LINEAR':
-        print("Strategy: P-ECMS (Constant Reference)")
+        # print("Strategy: P-ECMS (Constant Reference)")
         supervisor = LinearSupervisor(truck, controller, q_max_as, target_soc=target_soc)
         
     elif STRATEGY == 'GRAVITY':
-        print("Strategy: P-ECMS (Gravity-Aware, K=0.0003)")
+        # print("Strategy: P-ECMS (Gravity-Aware, K=0.0003)")
         supervisor = GravitySupervisor(truck, controller, q_max_as, target_soc=target_soc, k_grav=0.0003)
         
     elif STRATEGY == 'ENERGY':
-        print("Strategy: P-ECMS (Energy Balance)")
+        # print("Strategy: P-ECMS (Energy Balance)")
         supervisor = EnergyBalanceSupervisor(truck, controller, q_max_as, target_soc=target_soc)
         
     else:
         raise ValueError(f"Unknown Strategy: {STRATEGY}")
     
-    total_dist = predictor.dist_arr[-1]
-
     # Storage
     results = {
         'time': cycle_df['time'].values,
@@ -131,7 +136,7 @@ def main():
     soc = target_soc
     curr_target = target_soc # Initial
     
-    print(f"Starting Simulation... (Steps: {len(cycle_df)})")
+    # print(f"Starting Simulation... (Steps: {len(cycle_df)})")
     
     times = cycle_df['time'].values
     dts = cycle_df['dt'].values # New column from VECTO
@@ -170,9 +175,9 @@ def main():
             # ECMS / A-ECMS
             curr_target = target_soc # Constant target for plotting
             
-        # Logging print
-        if i % 1000 == 0:
-            print(f"Step {i}: s={controller.s_dis:.4f}, SOC={soc:.4f}, Target={curr_target:.4f}")
+        # Logging print (reduced)
+        # if i % 5000 == 0:
+        #     print(f"Step {i}: s={controller.s_dis:.4f}, SOC={soc:.4f}, Target={curr_target:.4f}")
             
         # Call Controller (Uses updated or internal s)
         t_eng, t_mot, h_cost_watts, p_chem_watts, fuel_g_s = controller.decide_split(tr, rpm, soc)
@@ -181,15 +186,7 @@ def main():
         results['s_factor'].append(controller.s_dis)
         results['soc_target'].append(curr_target)
         
-        # if i == 0 or i == 1000:
-        #     print(f"DEBUG MAIN Step {i}: p_chem={p_chem_watts:.4f}, Fuel={fuel_g_s:.4f}, SOC_start={soc:.6f}")
-        
-        if i % 1000 == 0:
-            print(f"Step {i}: TR={tr:.1f}, TR_eff={t_eng+t_mot:.1f}, T_eng={t_eng:.1f}, T_mot={t_mot:.1f}, Fuel={fuel_g_s:.4f} g/s")
-        
         # Update SOC strictly (Eq 13)
-        # We need I_bat.
-        # P_chem = V_oc * I_bat -> I_bat = P_chem / V_oc
         v_oc = truck.ocv_curve(soc * 100.0).item()
         
         # Protect div zero? Voc won't be 0.
@@ -213,14 +210,14 @@ def main():
         
         total_fuel_g += fuel_g_s * dt
         
-    print("Simulation Complete.")
+    # print("Simulation Complete.")
     # --- Plotting ---
     fig, axes = plt.subplots(4, 1, figsize=(10, 15), sharex=True)
     
     # 1. Velocity & Altitude
     axes[0].plot(results['time'], cycle_df['velocity_kmh'], label='Speed [km/h]', color='black')
     axes[0].set_ylabel('Speed [km/h]')
-    axes[0].set_title(f'Strategy: {STRATEGY} | Fuel: {total_fuel_g/1000:.2f} kg')
+    axes[0].set_title(f'Strategy: {STRATEGY} | Cap: {bat_capacity_kwh} | Fuel: {total_fuel_g/1000:.2f} kg')
     axes[0].grid(True)
     
     # Twin axis for Altitude
@@ -253,17 +250,18 @@ def main():
     axes[3].grid(True)
     
     plt.tight_layout()
-    plt.savefig('ecms_results.png')
-    print("Plot saved to ecms_results.png")
+    plot_filename = f"{output_prefix}.png"
+    plt.savefig(plot_filename)
+    plt.close(fig) # Close to release memory
     
-    # Compare with Baseline
-    baseline_fuel_kg = 36.55 # VECTO Reference
     fuel_kg = total_fuel_g / 1000.0
-    savings = (1 - fuel_kg/baseline_fuel_kg) * 100
-    print(f"Total Fuel Consumed (Hybrid): {fuel_kg:.2f} kg")
-    print(f"Baseline Fuel (VECTO): {baseline_fuel_kg:.2f} kg")
-    print(f"Potential Savings: {savings:.2f}%")
-    print(f"Final SOC: {soc:.4f}")
+    print(f"Saved {plot_filename} | Fuel: {fuel_kg:.3f} kg")
+    
+    return fuel_kg
+
+def main():
+    # Backward Comp for manual run
+    run_ecms_simulation()
 
 if __name__ == "__main__":
     main()

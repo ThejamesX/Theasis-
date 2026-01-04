@@ -1,0 +1,9 @@
+Cycle,Capacity_kWh,Strategy,Fuel_kg
+Class5_Tractor_DECL_LongHaulEMSReferenceLoad,30.0,ECMS,34.50309371572408
+Class5_Tractor_DECL_LongHaulEMSReferenceLoad,30.0,A-ECMS,35.27148340060395
+Class5_Tractor_DECL_LongHaulEMSReferenceLoad,30.0,PECMS,34.982075924504876
+Class5_Tractor_DECL_LongHaulEMSReferenceLoad,30.0,DP,31.586400019017077
+Class5_Tractor_DECL_RegionalDeliveryEMSReferenceLoad,30.0,ECMS,35.3761979240705
+Class5_Tractor_DECL_RegionalDeliveryEMSReferenceLoad,30.0,A-ECMS,35.5330725418232
+Class5_Tractor_DECL_RegionalDeliveryEMSReferenceLoad,30.0,PECMS,35.23235894018913
+Class5_Tractor_DECL_RegionalDeliveryEMSReferenceLoad,30.0,DP,32.179023410799445

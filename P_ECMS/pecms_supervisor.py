@@ -267,7 +267,8 @@ class PECMS_Supervisor:
                     d_soc = - (i_bat * dts[k]) / self.q_max_as
                     sim_soc += d_soc
                     
-                except:
+                except Exception as e:
+                    print(f"DEBUG PECMS EXCEPTION: {e}")
                     sim_valid = False
                     break
             

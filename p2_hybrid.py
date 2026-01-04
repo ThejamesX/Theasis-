@@ -55,7 +55,18 @@ class P2HybridTruck:
             # Fallback if no curve loaded (e.g. testing)
             return 700.0 
             
-        return float(self.ocv_curve([soc * 100.0])) # distinct correction: fraction -> %
+        # Ensure input is scalar
+        if hasattr(soc, "item"): 
+            soc_val = soc.item()
+        else:
+            soc_val = soc
+            
+        res = self.ocv_curve(soc_val * 100.0) # interp1d handles scalar
+        
+        # Ensure output is native float
+        if hasattr(res, "item"):
+            return res.item()
+        return float(res)
 
     def calc_backward_physics(self, cycle_df):
         """
