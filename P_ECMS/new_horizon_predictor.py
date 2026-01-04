@@ -60,67 +60,72 @@ class NewHorizonPredictor:
 
     def get_horizon(self, current_idx):
         """
-        Returns vectors for the next horizon based on SPATIAL NODES (50m).
+        Vrací vektory pro horizont. 
+        MODIFIKACE: Používá FIXNÍ RPM (aktuální hodnotu) pro celý horizont.
         """
         curr_dist = self.dist_arr[current_idx]
         
-        # Calculate target distances: d0, d0+50, d0+100 ... d0+2000
-        # Number of steps = horizon / step
+        # 1. Výpočet cílových vzdáleností (Nodes)
         num_nodes = int(self.horizon_dist / self.spatial_step) + 1
-        
         target_dists = curr_dist + np.arange(num_nodes) * self.spatial_step
         
-        # Find indices
-        # searchsorted returns index where element should be inserted
-        indices = np.searchsorted(self.dist_arr, target_dists)
+        boundary_indices = np.searchsorted(self.dist_arr, target_dists)
+        boundary_indices = np.clip(boundary_indices, 0, self.N - 1)
         
-        # Clamp indices
-        indices = np.clip(indices, 0, self.N - 1)
+        # Přečtení AKTUÁLNÍCH otáček (na začátku horizontu)
+        current_rpm = self.rpm_arr[current_idx] 
         
-        # Extract values at these indices
-        # We assume "Node" value is the instantaneous value at that distance point
+        # Inicializace polí
+        res_vel = np.zeros(num_nodes)
+        res_grade = np.zeros(num_nodes)
         
+        # ZDE JE ZMĚNA: Místo nul vytvoříme pole plné aktuální hodnoty RPM
+        res_rpm = np.full(num_nodes, current_rpm) 
+        
+        res_treq = np.zeros(num_nodes)
+        
+        # Ostatní stavové veličiny
+        res_alt = self.alt_arr[boundary_indices]
+        res_time = self.time_arr[boundary_indices]
+        
+        # 4. Smyčka pro průměrování (ostatní veličiny jako Grade/Speed se stále průměrují)
+        for k in range(num_nodes):
+            idx_start = boundary_indices[k]
+            if k < num_nodes - 1:
+                idx_end = boundary_indices[k+1]
+            else:
+                idx_end = min(idx_start + 1, self.N - 1)
+            
+            if idx_end <= idx_start:
+                res_vel[k] = self.vel_kmh_arr[idx_start]
+                res_grade[k] = self.grade_arr[idx_start]
+                res_treq[k] = self.treq_arr[idx_start]
+            else:
+                res_vel[k] = np.mean(self.vel_kmh_arr[idx_start:idx_end])
+                res_grade[k] = np.mean(self.grade_arr[idx_start:idx_end])
+                res_treq[k] = np.mean(self.treq_arr[idx_start:idx_end])
+            
+            # RPM zde už neřešíme, je nastaveno fixně nahoře
+            # (Případně můžete zde pro jistotu přepsat: res_rpm[k] = current_rpm)
+
+        # 5. Sestavení výsledku
         result = {
-            'times': self.time_arr[indices],
-            'dts': np.zeros_like(indices, dtype=float), # Will calc below
-            'vel_kmh': self.vel_kmh_arr[indices], 
-            'grades': self.grade_arr[indices],
-            'alts': self.alt_arr[indices],
-            'rpms': self.rpm_arr[indices],
-            't_reqs': self.treq_arr[indices],
-            'dist_covered': self.dist_arr[indices[-1]] - curr_dist,
-            'spatial_nodes': target_dists
+            'times': res_time,
+            'dts': np.zeros(num_nodes, dtype=float),
+            'vel_kmh': res_vel,
+            'grades': res_grade,
+            'alts': res_alt,
+            'rpms': res_rpm,    # <-- Toto pole nyní obsahuje samé konstanty
+            't_reqs': res_treq,
+            'dist_covered': self.dist_arr[boundary_indices[-1]] - curr_dist,
+            'spatial_nodes': target_dists,
+            'remaining_distance': self.dist_arr[-1] - curr_dist
         }
         
-        # Calculate DTs between nodes for integration
-        # dt[k] = time[k+1] - time[k] (approx time to reach next node)
-        # Last dt is 0 or estimated by speed
-        
-        # Simple finite diff of times
+        # ... (zbytek funkce pro výpočet dts zůstává stejný)
         result['dts'][:-1] = np.diff(result['times'])
-        
-        # Check for zero dt (if speed was high and nodes clamped to same index at end of cycle)
-        # or if multiple nodes fall on same index (stopped vehicle?)
-        # Fallback: dt = dx / v
-        
-        mask_zero = result['dts'] <= 0.001
-        if np.any(mask_zero):
-             # dx = 50m. v = vel_kmh / 3.6
-             v_mps = result['vel_kmh'] / 3.6
-             v_mps[v_mps < 0.1] = 0.1 # Protect
-             est_dt = self.spatial_step / v_mps
-             
-             # Apply fallback only where diff failed (or clamped)
-             # Note: result['dts'] matches size of nodes. diff is size-1.
-             # We filled result['dts'][:-1].
-             
-             # Actually safer to always use dx/v for prediction consistency if VECTO time is jittery
-             # But VECTO time is ground truth.
-             pass
-             
-        # Last dt estimate
         v_end = result['vel_kmh'][-1] / 3.6
         if v_end < 0.1: v_end = 0.1
         result['dts'][-1] = self.spatial_step / v_end
-             
+
         return result

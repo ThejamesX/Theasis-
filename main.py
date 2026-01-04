@@ -78,6 +78,7 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
     from P_ECMS.gravity_supervisor import GravitySupervisor
     from P_ECMS.pecms_supervisor import PECMS_Supervisor
     from P_ECMS.pecms_supervisor import PECMS_Supervisor
+    from P_ECMS.apecms_supervisor import APECMS_Supervisor
     from A_ECMS_Implementation.aecms_controller import AECMS_Controller
 
     # Default Predictor (can be overwritten)
@@ -100,11 +101,19 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
         # Use New PECMS Supervisor (Updated Init)
     elif STRATEGY == 'PECMS':
         # print("Strategy: P-ECMS (Constant Reference)") 
-        # Hardcoded Initial EF
+            
         controller.s_dis = 2.3395
         controller.s_chg = 1.7538
         predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
         supervisor = PECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
+        
+    elif STRATEGY == 'APECMS':
+         # print("Strategy: A-P-ECMS (Predictive Target + Adaptive Feedback)")
+         controller.s_dis = 2.3395
+         controller.s_chg = 1.7538
+         predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
+         supervisor = APECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
+         
     elif STRATEGY == 'LINEAR':
         # print("Strategy: P-ECMS (Constant Reference)")
         supervisor = LinearSupervisor(truck, controller, q_max_as, target_soc=target_soc)
