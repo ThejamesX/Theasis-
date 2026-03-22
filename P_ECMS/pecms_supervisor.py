@@ -136,7 +136,7 @@ class PECMS_Supervisor:
         calculate_horizon_energy_delta = self.calculate_horizon_energy_delta(horizon_data)
         
         # 1. Update Target SOC with Slope Adjustment
-        soc_adj = 0.25 * calculate_horizon_energy_delta
+        soc_adj = 0 #0.25 * calculate_horizon_energy_delta
         self.target_soc = self.soc_nominal + soc_adj
         
     
