@@ -36,22 +36,25 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     print(f"--- Running DP | Cap: {bat_capacity_kwh} kWh | Cycle: {os.path.basename(vmod_path)} ---")
     
     # UPDATED SETTINGS from User Request
-    optimizer = DPOptimizer(truck, cycle_df, soc_grid_size=400)
+    optimizer = DPOptimizer(truck, cycle_df, soc_grid_size=400, bat_capacity_kwh=bat_capacity_kwh)
     
     # print("Solving DP (Backward Sweep)...")
     # UPDATED SETTINGS from User Request (Target 0.51)
-    J = optimizer.solve(start_soc=0.50, target_soc=0.51)
+    J = optimizer.solve(start_soc=0.7, target_soc=0.3)
     
     # print("Reconstructing Optimal Path...")
-    res = optimizer.reconstruct_path(start_soc=0.50)
+    res = optimizer.reconstruct_path(start_soc=0.7)
     
     fuel_kg = res['total_fuel_kg']
     print(f"DP Result: {fuel_kg:.3f} kg")
     
     # Plotting
     plt.figure(figsize=(10, 6))
-    plt.plot(res['time'], res['soc'] * 100, label='DP Optimal', linewidth=2)
-    plt.axhline(51.0, color='g', linestyle='--', label='Target')
+    plt.plot(res['time'], res['soc'] * 100, label='DP Optimal SOC', linewidth=2)
+    if 'target_soc' in res:
+        plt.plot(res['time'], res['target_soc'] * 100, color='r', linestyle='--', label='Target Reference')
+    else:
+        plt.axhline(30.0, color='r', linestyle='--', label='Target Reference')
     plt.ylabel('SOC [%]')
     plt.xlabel('Time [s]')
     plt.title(f'DP Optimal | Cap: {bat_capacity_kwh} | Fuel: {fuel_kg:.3f} kg')

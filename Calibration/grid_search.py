@@ -63,7 +63,7 @@ def run_simulation_task(params):
     # Use global worker objects
     controller = ECMS_Controller(worker_truck, s_dis=s_dis, s_chg=s_chg, q_lhv=42700.0)
     
-    soc = 0.50
+    soc = 0.70
     total_fuel_g = 0.0
     
     # Fast Loop
@@ -104,14 +104,15 @@ def run_simulation_task(params):
     return (s_dis, s_chg, total_fuel_g / 1000.0, soc)
 
 def main():
-    # 1. Paths
-    engine_map = '/root/ECMS_Python/Engine/325kW.vmap'
-    motor_map = '/root/ECMS_Python/Emotor/EM_Map - kopie.vemo'
-    motor_param = '/root/ECMS_Python/Emotor/P2_Group5_EM.vem'
-    bat_param = '/root/ECMS_Python/Emotor/P2_Group5_REESS.vreess'
-    bat_ocv = '/root/ECMS_Python/Emotor/REESS_SOC_curve.vbatv'
-    bat_res = '/root/ECMS_Python/Emotor/REESS_Internal_Resistance.vbatr'
-    cycle_path = '/root/ECMS_Python/Driving Cycle/Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod'
+    # 1. Paths (Dynamic based on workspace root)
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    engine_map = os.path.join(base_dir, 'Engine', '325kW.vmap')
+    motor_map = os.path.join(base_dir, 'Emotor', 'EM_Map - kopie.vemo')
+    motor_param = os.path.join(base_dir, 'Emotor', 'P2_Group5_EM.vem')
+    bat_param = os.path.join(base_dir, 'Emotor', 'P2_Group5_REESS.vreess')
+    bat_ocv = os.path.join(base_dir, 'Emotor', 'REESS_SOC_curve.vbatv')
+    bat_res = os.path.join(base_dir, 'Emotor', 'REESS_Internal_Resistance.vbatr')
+    cycle_path = os.path.join(base_dir, 'Driving Cycle', 'Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod')
     
     # 2. Grid Definition
     # High Resolution as requested

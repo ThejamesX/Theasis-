@@ -5,12 +5,12 @@ class HorizonPredictor:
     """
     Look-ahead module to extract future driving conditions.
     """
-    def __init__(self, cycle_df, horizon_dist_m=2000.0, resample_step=10):
+    def __init__(self, cycle_df, horizon_dist_m=2000.0, resample_step=40):
         """
         Args:
             cycle_df: DataFrame. Must contain mapped VECTO columns.
             horizon_dist_m: Look ahead distance [m]. (Default 2000m)
-            resample_step: Optimization downsampling. (Default 10)
+            resample_step: Optimization downsampling. (Default 40)
         """
         self.cycle_df = cycle_df.copy()
         

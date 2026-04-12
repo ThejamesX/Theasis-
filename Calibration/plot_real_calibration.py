@@ -37,7 +37,7 @@ def load_real_data(csv_path):
     
     return s_dis_ax, s_chg_ax, X, Y, Fuel, SOC
 
-def find_optimal_point(X, Y, Fuel, SOC, target_soc=0.50):
+def find_optimal_point(X, Y, Fuel, SOC, target_soc=0.30):
     """
     Finds optimal point on SOC isoline.
     """
@@ -70,7 +70,7 @@ def find_optimal_point(X, Y, Fuel, SOC, target_soc=0.50):
     
     return opt_s_dis, opt_s_chg, min_fuel, x_line, y_line
 
-def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line, target_soc=0.50):
+def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line, target_soc=0.30):
     opt_s_dis, opt_s_chg, opt_fuel = opt_point
     line_x, line_y = constr_line
     
@@ -87,8 +87,8 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
     if len(line_x) > 1:
         ax1.plot(line_x, line_y, 'k-', linewidth=3, label=f'Target (SOC={target_soc})')
         
-    # Additional Isolines (0.45, 0.55)
-    for soc_iso in [0.45, 0.55]:
+    # Additional Isolines (0.25, 0.35)
+    for soc_iso in [0.25, 0.35]:
         contour = ax1.contour(X, Y, SOC, levels=[soc_iso], colors='k', linestyles=':', linewidths=1.5)
         if contour.allsegs and contour.allsegs[0]:
              # Just plot directly to avoid label issues if wanted, or let contour handle it
@@ -125,8 +125,8 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
     ax2r.tick_params(axis='y', labelcolor='tab:red')
     
     ax2r.axhline(target_soc, color='k', linestyle='--', label='Target')
-    ax2r.axhline(0.45, color='gray', linestyle=':', alpha=0.7)
-    ax2r.axhline(0.55, color='gray', linestyle=':', alpha=0.7)
+    ax2r.axhline(0.25, color='gray', linestyle=':', alpha=0.7)
+    ax2r.axhline(0.35, color='gray', linestyle=':', alpha=0.7)
     
     ax2.set_title(f'Discharge Sensitivity\n(Fixed $s_{{chg}}$={fixed_val:.2f})')
     
@@ -151,8 +151,8 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
     ax3r.plot(y_slice, soc_slice_3, 'r-', linewidth=2)
     ax3r.tick_params(axis='y', labelcolor='tab:red')
     ax3r.axhline(target_soc, color='k', linestyle='--')
-    ax3r.axhline(0.45, color='gray', linestyle=':', alpha=0.7)
-    ax3r.axhline(0.55, color='gray', linestyle=':', alpha=0.7)
+    ax3r.axhline(0.25, color='gray', linestyle=':', alpha=0.7)
+    ax3r.axhline(0.35, color='gray', linestyle=':', alpha=0.7)
     
     ax3.set_title(f'Charge Sensitivity\n(Fixed $s_{{dis}}$={fixed_val_x:.2f})')
     
@@ -162,7 +162,7 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
 
 def main():
     csv_path = 'calibration_results.csv' # in current dir (Calibration)
-    target_soc = 0.50
+    target_soc = 0.30
     
     print("Loading Real Data...")
     s_dis, s_chg, X, Y, Fuel, SOC = load_real_data(csv_path)

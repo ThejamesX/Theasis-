@@ -62,7 +62,7 @@ def plot_ocv_soc():
                 arrowprops=dict(arrowstyle='->', color='#666666', lw=1.2))
 
     plt.tight_layout()
-    outpath = os.path.join(OUTPUT_DIR, "battery_ocv_soc.png")
+    outpath = os.path.join(OUTPUT_DIR, "battery_ocv_soc.pdf")
     plt.savefig(outpath)
     plt.close(fig)
     print(f"Saved: {outpath}")
@@ -170,7 +170,7 @@ def plot_bsfc_map():
     ax.grid(True, linestyle=':', alpha=0.3)
 
     plt.tight_layout()
-    outpath = os.path.join(OUTPUT_DIR, "engine_bsfc_map.png")
+    outpath = os.path.join(OUTPUT_DIR, "engine_bsfc_map.pdf")
     plt.savefig(outpath)
     plt.close(fig)
     print(f"Saved: {outpath}")
@@ -288,7 +288,7 @@ def plot_em_efficiency():
     ax.grid(True, linestyle=':', alpha=0.3)
 
     plt.tight_layout()
-    outpath = os.path.join(OUTPUT_DIR, "emotor_efficiency_map.png")
+    outpath = os.path.join(OUTPUT_DIR, "emotor_efficiency_map.pdf")
     plt.savefig(outpath)
     plt.close(fig)
     print(f"Saved: {outpath}")

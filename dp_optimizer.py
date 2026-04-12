@@ -3,7 +3,7 @@ import time
 from scipy.interpolate import RegularGridInterpolator, LinearNDInterpolator
 
 class DPOptimizer:
-    def __init__(self, truck, cycle_df, soc_grid_size=150):
+    def __init__(self, truck, cycle_df, soc_grid_size=150, bat_capacity_kwh =120.0):
         self.truck = truck
         self.cycle_df = cycle_df
         
@@ -13,6 +13,7 @@ class DPOptimizer:
         self.soc_grid = np.linspace(self.soc_min, self.soc_max, soc_grid_size)
         self.ns = soc_grid_size
         self.N = len(cycle_df)
+        self.bat_capacity_kwh = bat_capacity_kwh
         
         # Time Steps
         times = cycle_df['time'].values
@@ -67,7 +68,7 @@ class DPOptimizer:
         self.inv_mot_interp = LinearNDInterpolator(inv_pts, inv_vals, fill_value=np.nan)
         print("Inverse Map Ready.")
 
-    def solve(self, start_soc=0.50, target_soc=0.50):
+    def solve(self, start_soc=0.70, target_soc=0.30):
         print("Starting DP Backward Sweep (Control Discretization)...")
         start_time = time.time()
         
@@ -95,8 +96,8 @@ class DPOptimizer:
         # Pre-calc Physics constants
         # Dynamic Capacity from file (kWh) -> Coulombs (As)
         # FORCE SMALL BATTERY (14 kWh) as per Sync Request
-        cap_kwh = self.truck.bat_params.get('Capacity', 120.0) 
-        v_nom = self.truck.get_ocv(0.5)
+        cap_kwh = self.bat_capacity_kwh
+        v_nom = self.truck.get_ocv(0.7)
         cap_coulombs = (cap_kwh * 3.6e6) / v_nom 
         q_max = cap_coulombs
         print(f"DP Physics: Cap={cap_kwh:.2f} kWh (Forced), V_nom={v_nom:.1f} V, Q={q_max:.1f} As")
@@ -260,20 +261,29 @@ class DPOptimizer:
         
         return i_bat, mask_feas
 
-    def reconstruct_path(self, start_soc=0.50):
+    def reconstruct_path(self, start_soc=0.70):
         print("Reconstructing Optimal Path...")
         
         soc_curr = start_soc
+        target_end = 0.30
         
         time_hist = self.cycle_df['time'].values
+        
+        if 'dist_accum_m' in self.cycle_df.columns:
+            dist_arr = self.cycle_df['dist_accum_m'].values
+        else:
+            dist_arr = np.linspace(0, 1, self.N)
+        total_dist = dist_arr[-1] if dist_arr[-1] > 0 else 1.0
+        
         soc_hist = []
+        target_soc_hist = []
         fuel_hist = []
         t_mot_hist = []
         t_eng_hist = []
         total_fuel = 0.0
         
-        cap_kwh = self.truck.bat_params.get('Capacity', 120.0)
-        v_nom = self.truck.get_ocv(0.5)
+        cap_kwh = self.bat_capacity_kwh
+        v_nom = self.truck.get_ocv(0.7)
         cap_coulombs = (cap_kwh * 3.6e6) / v_nom
         
         for k in range(self.N):
@@ -328,7 +338,11 @@ class DPOptimizer:
             
             total_fuel += fuel
             
+            # Linear Reference Target
+            curr_target = start_soc - (dist_arr[k] / total_dist) * (start_soc - target_end)
+            
             soc_hist.append(soc_curr)
+            target_soc_hist.append(curr_target)
             t_mot_hist.append(t_mot)
             t_eng_hist.append(t_eng)
             fuel_hist.append(fuel)
@@ -343,12 +357,13 @@ class DPOptimizer:
         print(f"  Mean T_eng: {np.mean(t_eng_hist):.1f} Nm")
         print(f"  Mean RPM:   {np.mean(self.rpms):.1f}")
         dSOC_total = start_soc - soc_hist[-1]
-        energy_batt_kwh = dSOC_total * float(self.truck.bat_params.get('Capacity', 120))
+        energy_batt_kwh = dSOC_total * float(self.bat_capacity_kwh)
         print(f"  SOC Drop: {dSOC_total*100:.2f}% -> {energy_batt_kwh:.2f} kWh used")
         
         return {
             'time': time_hist,
             'soc': np.array(soc_hist),
+            'target_soc': np.array(target_soc_hist),
             't_mot': np.array(t_mot_hist),
             't_eng': np.array(t_eng_hist),
             'total_fuel_kg': total_fuel/1000.0

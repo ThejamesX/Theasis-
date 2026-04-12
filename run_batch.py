@@ -24,9 +24,9 @@ def main():
         
     print(f"Found {len(cycles)} cycles.")
     
-    params_cap = [120.0, 60.0, 30.0]
+    params_cap = [120.0, 100]
     
-    strategies_ecms = ['ECMS', 'A-ECMS', 'PECMS']
+    strategies_ecms = ['ECMS', 'AECMS', 'PECMS']
     # DP is run separately
     
     results = []

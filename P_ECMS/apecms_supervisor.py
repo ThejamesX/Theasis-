@@ -25,7 +25,7 @@ class APECMS_Supervisor(PECMS_Supervisor):
         # For now, I stick to the pure prediction logic currently in P-ECMS.
         
         soc_target = self.soc_nominal + soc_adj
-        soc_target = max(0.35, min(0.75, soc_target))
+        soc_target = max(0.30, min(0.75, soc_target))
         
         # 2. Adaptive Control (Feedback)
         # Replaces local search loop

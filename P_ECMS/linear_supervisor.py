@@ -21,7 +21,7 @@ class LinearSupervisor:
         soc_target = self.target_soc
         
         # Clamp target (safety bounds)
-        soc_target = max(0.35, min(0.75, soc_target))
+        soc_target = max(0.30, min(0.75, soc_target))
         
         # 2. Shooting Method
         rpms = horizon_data['rpms']

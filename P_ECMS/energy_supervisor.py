@@ -21,7 +21,7 @@ class EnergyBalanceSupervisor:
         self.k_gain = k_gain 
         
         # Bounds
-        self.soc_min = 0.35
+        self.soc_min = 0.30
         self.soc_max = 0.75
         
         self.s_candidates = np.linspace(1.5, 3.5, 10)

@@ -38,14 +38,22 @@ def grid_search_aecms():
     dts[0] = 0.5
     rpms = cycle_df['rpm_ice'].values
     steps = len(cycle_df)
-    q_max_as = (120.0 * 3.6e6) / truck.get_ocv(0.5)
+    q_max_as = (120.0 * 3.6e6) / truck.get_ocv(0.7)
     
-    target_soc = 0.50
+    target_start = 0.70
+    target_end = 0.30
+    
+    # Pre-extract distance for linear target
+    if 'dist_accum_m' in cycle_df.columns:
+        dist_arr = cycle_df['dist_accum_m'].values
+    else:
+        dist_arr = np.linspace(0, 1, steps)
+    total_dist = dist_arr[-1] if dist_arr[-1] > 0 else 1.0
     
     # 2. Grid Setup
     # 10x10 grid? 100 runs.
-    kp_dis_vals = np.linspace(10, 30, 20)
-    kp_chg_vals = np.linspace(0.01, 5, 20)
+    kp_dis_vals = np.linspace(5, 60, 100)
+    kp_chg_vals = np.linspace(0.01, 3, 25)
     
     results = []
     
@@ -53,12 +61,15 @@ def grid_search_aecms():
     
     for kd in kp_dis_vals:
         for kc in kp_chg_vals:
-            ctrl = AECMS_Controller(truck, kp_dis=kd, kp_chg=kc, target_soc=target_soc)
-            soc = target_soc
+            ctrl = AECMS_Controller(truck, kp_dis=kd, kp_chg=kc, target_soc=target_start)
+            soc = target_start
             total_fuel = 0.0
             
             # Fast Sim Loop
             for i in range(steps):
+                curr_target = target_start - (dist_arr[i] / total_dist) * (target_start - target_end)
+                ctrl.target_soc = curr_target
+                
                 res = ctrl.decide_split(t_req_arr[i], rpms[i], soc)
                 fuel_rate = res[4]
                 p_chem = res[3]
@@ -70,7 +81,7 @@ def grid_search_aecms():
                 soc += dsoc
                 
             final_soc = soc
-            soc_dev = abs(final_soc - target_soc) * 100
+            soc_dev = abs(final_soc - target_end) * 100
             fuel_kg = total_fuel / 1000.0
             
             # Penalized Metric? Cost = Fuel + 100 * Dev?
@@ -89,13 +100,13 @@ def grid_search_aecms():
     df.to_csv('aecms_grid_results.csv', index=False)
     
     # Best Fuel with Dev < 1%
-    valid = df[df['dev'] < 1.0]
+    valid = df[df['dev'] < 0.8]
     if not valid.empty:
         best = valid.loc[valid['fuel'].idxmin()]
-        print("\n--- BEST VALID RESULT (Dev < 1%) ---")
+        print("\n--- BEST VALID RESULT (Dev < 0.8%) ---")
         print(best)
     else:
-        print("\nNo run satisfied deviation < 1%. Best overall fuel:")
+        print("\nNo run satisfied deviation < 0.8%. Best overall fuel:")
         best = df.loc[df['fuel'].idxmin()]
         print(best)
         

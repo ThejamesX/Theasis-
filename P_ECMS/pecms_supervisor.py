@@ -47,100 +47,16 @@ class PECMS_Supervisor:
         self.s_max = 2.6
         self.s_min = 1.4 / self.ratio
 
-    def calculate_horizon_energy_delta(self, horizon_data):
-        """
-        Vrací 'adjustment' (úpravu) pro Target SOC.
-        Rozlišuje fázi PŘÍPRAVY (před kopcem/sjezdem) a fázi AKCE (v kopci/sjezdu).
-        """
-        # 1. Načtení dat
-        grades = horizon_data.get('grades', [])
-        dists = horizon_data.get('dists', [])
-        vels = horizon_data.get('vel_kmh', []) / 3.6
-        
-        if len(grades) == 0: return 0.0
 
-        # 2. Analýza Horizontu (Budoucnost)
-        delta_h_total = 0.0
-        for i in range(len(grades)):
-            dist_step = vels[i] * horizon_data['dts'][i] 
-            delta_h_total += grades[i] * dist_step
-
-        alts = horizon_data.get('alts', [])
-        delta_h_alts = 0.0
-        if len(alts) > 0:
-            delta_h_alts = alts[-1] - alts[0]
-        else:
-            delta_h_alts = 0.0
-
-        # 3. Analýza Aktuálního stavu (Přítomnost)
-        # Podíváme se hned před auto (prvních 50-100 metrů nebo první segment)
-        current_grade = grades[0] 
-        
-        # Thresholdy pro detekci "Jsem v kopci/sjezdu"
-        UPHILL_THRESHOLD = 0.015  # 1.5% stoupání
-        DOWNHILL_THRESHOLD = -0.015 # -1.5% klesání
-
-        # 4. Výpočet velikosti změny (Magnitude)
-        # Kolik % SOC odpovídá energii kopce?
-        g = 9.81
-        m = self.mass
-        e_pot = m * g * abs(delta_h_alts) # Vždy kladná velikost energie
-        
-        nominal_voltage = 681.29 
-        total_capacity_joules = self.q_max_as * nominal_voltage
-        
-        # Hrubý odhad změny SOC (bez účinnosti pro zjednodušení logiky směru)
-        # Účinnost doladíme v k_slope v hlavním kontroléru
-        raw_soc_change = e_pot / total_capacity_joules
-        
-        # Omezovač (aby target neulétl o 50%)
-        raw_soc_change = min(0.20, raw_soc_change) 
-
-        # 5. ROZHODOVACÍ STROM (THE LOGIC CORE)
-        adjustment = 0.0
-
-        if delta_h_total > 0:
-            # === BUDOUCNOST: KOPEC (Spotřeba) ===
-            
-            if current_grade > UPHILL_THRESHOLD:
-                # FÁZE 4: UŽ JSME V KOPCI
-                # Chceme energii použít -> Target DOLŮ
-                adjustment = -raw_soc_change
-            else:
-                # FÁZE 3: BLÍŽÍME SE KE KOPCI (jsme na rovině)
-                # Chceme se připravit -> Target NAHORU
-                adjustment = raw_soc_change
-                
-        else:
-            # === BUDOUCNOST: SJEZD (Zisk energie) ===
-            
-            if current_grade < DOWNHILL_THRESHOLD:
-                # FÁZE 2: UŽ JSME VE SJEZDU (To je tvůj požadavek!)
-                # Chceme maximalizovat nabíjení -> Target NAHORU
-                # (Aby regulátor viděl chybu a tlačil do baterky)
-                adjustment = raw_soc_change 
-            else:
-                # FÁZE 1: BLÍŽÍME SE K SJEZDU
-                # Chceme udělat místo -> Target DOLŮ
-                adjustment = -raw_soc_change
-
-        return adjustment
 
     def get_optimal_s(self, current_dist, current_soc, horizon_data):
-        # 1. Target SOC Calculation 
-        # Base target is constant (Charge Sustaining)
-        
-        dist_covered = horizon_data['dist_covered']
-        
 
-        calculate_horizon_energy_delta = self.calculate_horizon_energy_delta(horizon_data)
-        
         # 1. Update Target SOC with Slope Adjustment
-        soc_adj = 0 #0.25 * calculate_horizon_energy_delta
+        soc_adj = 0 
         self.target_soc = self.soc_nominal + soc_adj
         
     
-        self.target_soc = max(0.35, min(0.75, self.target_soc))
+        self.target_soc = max(0.30, min(0.75, self.target_soc))
         
         # 2. Internal Physics Calculation
         # Force Calculation using Speed Vector + Grade + Spatial Accel

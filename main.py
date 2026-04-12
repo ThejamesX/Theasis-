@@ -7,7 +7,7 @@ from vecto_loader import VectoLoader
 from p2_hybrid import P2HybridTruck
 from ecms_controller import ECMS_Controller
 
-def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.0, output_prefix='ecms'):
+def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.0, output_prefix='ecms'):
     # 1. Paths
     # Using absolute paths as requested or safer relative if running from root
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -50,14 +50,14 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
     cycle_df['t_req_hybrid_in'] = t_req
     
     # 5. Simulation Loop
-    target_soc = 0.50
+    target_soc = 0.70 # Start at 70%
     # Q_LHV = 42700 J/g
     controller = ECMS_Controller(truck, q_lhv=42700.0) 
     
     # Capacity handling strictly
     # VECTO "Capacity" is typically kWh.
     # Q_max [As] = (kWh * 3600 * 1000) / V_nom
-    v_nom = truck.ocv_curve(50).item() # 50% SOC voltage
+    v_nom = truck.ocv_curve(70).item() # 70% SOC voltage
     cap_kwh = truck.bat_params.get('Capacity', 120.0)
     q_max_as = (cap_kwh * 3.6e6) / v_nom
     # print(f"DEBUG: V_nom={v_nom:.2f} V, Cap={cap_kwh:.2f} kWh, Q_max={q_max_as:.2f} As")
@@ -93,11 +93,11 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
         pass 
         
     # 2. A-ECMS (Adaptive Proportional)
-    elif STRATEGY == 'A-ECMS':
+    elif STRATEGY == 'AECMS':
         # print("Strategy: A-ECMS (Proportional Feedback)")
         # Replace base controller with Adaptive one
-        controller = AECMS_Controller(truck, kp_dis=16.5, kp_chg=2, target_soc=target_soc)  
-    # 3. P-ECMS Variants (Supervisor + Base Controller)
+        controller = AECMS_Controller(truck, kp_dis=30, kp_chg=0.01, target_soc=target_soc)  
+     #3. P-ECMS Variants (Supervisor + Base Controller)
         # Use New PECMS Supervisor (Updated Init)
     elif STRATEGY == 'PECMS':
         # print("Strategy: P-ECMS (Constant Reference)") 
@@ -114,18 +114,6 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
          predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
          supervisor = APECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
          
-    elif STRATEGY == 'LINEAR':
-        # print("Strategy: P-ECMS (Constant Reference)")
-        supervisor = LinearSupervisor(truck, controller, q_max_as, target_soc=target_soc)
-        
-    elif STRATEGY == 'GRAVITY':
-        # print("Strategy: P-ECMS (Gravity-Aware, K=0.0003)")
-        supervisor = GravitySupervisor(truck, controller, q_max_as, target_soc=target_soc, k_grav=0.0003)
-        
-    elif STRATEGY == 'ENERGY':
-        # print("Strategy: P-ECMS (Energy Balance)")
-        supervisor = EnergyBalanceSupervisor(truck, controller, q_max_as, target_soc=target_soc)
-        
     else:
         raise ValueError(f"Unknown Strategy: {STRATEGY}")
     
@@ -165,12 +153,23 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
         # dt from file (Exact VECTO Step)
         dt = dts[i]
             
+        # Linear Target Update
+        curr_dist_val = predictor.dist_arr[i] if hasattr(predictor, 'dist_arr') else 0
+        total_dist_val = predictor.dist_arr[-1] if hasattr(predictor, 'dist_arr') else 1
+        curr_lin_target = 0.70 - (curr_dist_val / total_dist_val) * (0.70 - 0.30)
+        
+        if hasattr(controller, 'target_soc'):
+            controller.target_soc = curr_lin_target
 
         # --- Update Logic ---
         if supervisor is not None:
+             supervisor.target_soc = curr_lin_target
+             if hasattr(supervisor, 'soc_nominal'):
+                 supervisor.soc_nominal = curr_lin_target
+             
              # P-ECMS Update (Every 3 steps? Or every step for accuracy? P-ECMS typically periodic)
              # Let's keep every 3 steps to save compute, matches legacy
-            if i % 3 == 0:
+             if i % 3 == 0:
                 horizon = predictor.get_horizon(i)
                 curr_dist = predictor.dist_arr[i]
                 
@@ -182,7 +181,7 @@ def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.
                 controller.s_chg = opt_s * ratio # maintain ratio
         else:
             # ECMS / A-ECMS
-            curr_target = target_soc # Constant target for plotting
+            curr_target = curr_lin_target # Update reference target for plotting
             
         # Logging print (reduced)
         # if i % 5000 == 0:

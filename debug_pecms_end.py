@@ -42,7 +42,7 @@ class DebugPECMS_Supervisor(PECMS_Supervisor):
                  if is_debug and (step_idx % 50 == 0):
                      print(f"[DEBUG] Step {step_idx} | Landing Fade={fade:.3f}")
 
-        soc_target = max(0.35, min(0.75, self.soc_nominal + soc_adj))
+        soc_target = max(0.30, min(0.75, self.soc_nominal + soc_adj))
         
         # Physics
         vels_kmh = horizon_data.get('vel_kmh', np.zeros_like(horizon_data['rpms']))

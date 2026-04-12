@@ -47,7 +47,7 @@ class GravitySupervisor:
             soc_target += soc_adj
         
         # Clamp Target SOC
-        soc_target = max(0.35, min(0.75, soc_target))
+        soc_target = max(0.30, min(0.75, soc_target))
         
         # 2. Local Search Candidates
         candidates = [
