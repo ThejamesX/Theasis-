@@ -14,15 +14,11 @@ class ECMS_Controller:
     def get_equivalence_factor(self, soc):
         return self.s_dis # Not used in static mode
         
-    def decide_split(self, t_req, rpm, soc):
+    def decide_split(self, t_req, rpm, soc, v_kmh=None):
         """
         Optimization step minimizing Hamiltonian H (Eq 23).
         With Static Factors (self.s_dis, self.s_chg) and Torque Saturation.
         """
-        if rpm < 600:
-            pass
-
-
         # 1. Saturate t_req to Hybrid System Capability
         # Anything beyond min/max is Friction Brakes or unachievable
         t_sys_min, t_sys_max = self.veh.get_system_limits(rpm)
@@ -44,12 +40,7 @@ class ECMS_Controller:
         if soc >= 0.80:
             t_mot_min_phys = max(0.0, t_mot_min_phys) # Clamp neg torque to 0
             
-        # Engine Limits constraint code follows...
-        # t_sys_min = t_eng_min + t_mot_min
-        # We can deduce t_eng limits roughly or add a method. 
-        # For now using consistent values:
-        t_eng_max = 2400.0
-        t_eng_min = -300
+        t_eng_min, t_eng_max = self.veh.get_eng_limits(rpm)
         
         # Constraint: t_eng_min <= (t_req - t_mot) <= t_eng_max
         # => t_mot <= t_req - t_eng_min
@@ -73,6 +64,11 @@ class ECMS_Controller:
             candidates = np.array([c])
         else:
             candidates = np.linspace(t_mot_min, t_mot_max, 50)
+            
+        # Standstill constraint: If vehicle is stopped, force Motor Torque = 0
+        if v_kmh is not None and v_kmh < 0.1:
+            safe_0 = max(t_mot_min_phys, min(t_mot_max_phys, 0.0))
+            candidates = np.array([safe_0])
         
         t_mots = candidates
         t_engs = t_req_hybrid - t_mots

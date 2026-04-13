@@ -42,10 +42,9 @@ class PECMS_Supervisor:
         self.last_target = self.target_soc
         
         # "min 1.6 for charge and max 2.6 for discharge based on the ratio"
-        # s_chg >= 1.6  =>  s_dis * ratio >= 1.6  =>  s_dis >= 1.6 / ratio
-        # s_dis <= 2.6
-        self.s_max = 2.6
-        self.s_min = 1.4 / self.ratio
+        # Relaxing bounds significantly to match A-ECMS capabilities
+        self.s_max = 3.0
+        self.s_min = 1 / self.ratio
 
 
 
@@ -124,7 +123,7 @@ class PECMS_Supervisor:
             sim_valid = True
             for k in range(steps):
                 try:
-                    res = self.controller.decide_split(t_reqs_calc[k], rpms[k], sim_soc)
+                    res = self.controller.decide_split(t_reqs_calc[k], rpms[k], sim_soc, vels_kmh[k])
                     p_chem = res[3] 
                     
                     u_oc = self.veh.get_ocv(sim_soc)

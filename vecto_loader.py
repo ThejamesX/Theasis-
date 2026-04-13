@@ -32,7 +32,7 @@ class VectoLoader:
             
             # Clean column names (remove units in brackets if desired, but for now specific columns are requested)
             # The user requested: time, P_wheel_kW, n_eng_rpm, v_act_kmh
-            # Column names in sample: "time [s]", "P_wheel_in [kW]", "n_ice_avg [1/min]", "v_act [km/h]"
+            # Column names in sample: "time [s]", "P_wheel_in", "n_ice_avg [1/min]", "v_act [km/h]"
             # NOTE: "P_wheel_in [kW]" is usually the load at the wheel hub. "P_trac [kW]" or "P_wheel_kW" might be used.
             # Let's map them to standard names.
             

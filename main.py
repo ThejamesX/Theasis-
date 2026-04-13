@@ -71,18 +71,15 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     sys.path.append(os.path.join(base_dir, 'P_ECMS')) 
     sys.path.append(os.path.join(base_dir, 'A_ECMS_Implementation'))
     
-    from P_ECMS.horizon_predictor import HorizonPredictor
+  
     from P_ECMS.new_horizon_predictor import NewHorizonPredictor
-    from P_ECMS.energy_supervisor import EnergyBalanceSupervisor
-    from P_ECMS.linear_supervisor import LinearSupervisor
-    from P_ECMS.gravity_supervisor import GravitySupervisor
+  
     from P_ECMS.pecms_supervisor import PECMS_Supervisor
     from P_ECMS.pecms_supervisor import PECMS_Supervisor
-    from P_ECMS.apecms_supervisor import APECMS_Supervisor
     from A_ECMS_Implementation.aecms_controller import AECMS_Controller
 
     # Default Predictor (can be overwritten)
-    predictor = HorizonPredictor(cycle_df) 
+    predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
     
     supervisor = None
     
@@ -93,7 +90,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         pass 
         
     # 2. A-ECMS (Adaptive Proportional)
-    elif STRATEGY == 'AECMS':
+    elif STRATEGY in ['AECMS', 'A-ECMS']:
         # print("Strategy: A-ECMS (Proportional Feedback)")
         # Replace base controller with Adaptive one
         controller = AECMS_Controller(truck, kp_dis=30, kp_chg=0.01, target_soc=target_soc)  
@@ -107,19 +104,16 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
         supervisor = PECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
         
-    elif STRATEGY == 'APECMS':
-         # print("Strategy: A-P-ECMS (Predictive Target + Adaptive Feedback)")
-         controller.s_dis = 2.3395
-         controller.s_chg = 1.7538
-         predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
-         supervisor = APECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
-         
     else:
         raise ValueError(f"Unknown Strategy: {STRATEGY}")
     
     # Storage
     results = {
         'time': cycle_df['time'].values,
+        'velocity_kmh': cycle_df['velocity_kmh'].values,
+        'altitude_m': cycle_df['altitude_m'].values if 'altitude_m' in cycle_df.columns else np.zeros_like(cycle_df['time'].values),
+        'rpm_ice': cycle_df['rpm_ice'].values,
+        't_req': t_req,
         'soc': [],
         'soc_target': [], 
         't_ice': [],
@@ -152,6 +146,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         
         # dt from file (Exact VECTO Step)
         dt = dts[i]
+        vel = cycle_df['velocity_kmh'].values[i] if 'velocity_kmh' in cycle_df.columns else 0.0
             
         # Linear Target Update
         curr_dist_val = predictor.dist_arr[i] if hasattr(predictor, 'dist_arr') else 0
@@ -188,7 +183,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         #     print(f"Step {i}: s={controller.s_dis:.4f}, SOC={soc:.4f}, Target={curr_target:.4f}")
             
         # Call Controller (Uses updated or internal s)
-        t_eng, t_mot, h_cost_watts, p_chem_watts, fuel_g_s = controller.decide_split(tr, rpm, soc)
+        t_eng, t_mot, h_cost_watts, p_chem_watts, fuel_g_s = controller.decide_split(tr, rpm, soc, vel)
         
         # Store s and target
         results['s_factor'].append(controller.s_dis)
@@ -220,52 +215,37 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         
     # print("Simulation Complete.")
     # --- Plotting ---
-    fig, axes = plt.subplots(4, 1, figsize=(10, 15), sharex=True)
+    plt.rcParams.update({'font.size': 12, 'axes.labelsize': 12, 'legend.fontsize': 11})
+    fig, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
     
-    # 1. Velocity & Altitude
-    axes[0].plot(results['time'], cycle_df['velocity_kmh'], label='Speed [km/h]', color='black')
-    axes[0].set_ylabel('Speed [km/h]')
-    axes[0].set_title(f'Strategy: {STRATEGY} | Cap: {bat_capacity_kwh} | Fuel: {total_fuel_g/1000:.2f} kg')
-    axes[0].grid(True)
+    # 1. SOC
+    axes[0].plot(results['time'], np.array(results['soc']) * 100, label='SOC [%]', color='tab:blue', linewidth=1.5)
+    axes[0].plot(results['time'], np.array(results['soc_target']) * 100, label='Target SOC [%]', color='black', linestyle='--', linewidth=1.5)
+    axes[0].set_ylabel('SOC [%]')
+    axes[0].set_title(f'Strategy: {STRATEGY} | Cap: {bat_capacity_kwh} | Fuel: {total_fuel_g/1000:.2f} kg', fontweight='bold')
+    axes[0].legend(loc='upper right')
+    axes[0].grid(True, linestyle=':', alpha=0.7)
     
-    # Twin axis for Altitude
-    if 'altitude_m' in cycle_df.columns:
-        ax0_alt = axes[0].twinx()
-        ax0_alt.plot(results['time'], cycle_df['altitude_m'], label='Altitude [m]', color='gray', alpha=0.5, linestyle='--')
-        ax0_alt.set_ylabel('Altitude [m]', color='gray')
-    
-    # 2. SOC
-    axes[1].plot(results['time'], np.array(results['soc']) * 100, label='SOC [%]', color='blue')
-    axes[1].plot(results['time'], np.array(results['soc_target']) * 100, label='Target SOC [%]', color='red', linestyle='--')
-    axes[1].set_ylabel('SOC [%]')
+    # 2. Torque
+    axes[1].plot(results['time'], results['t_ice'], label='Engine Torque', color='tab:red', alpha=0.8, linewidth=1)
+    axes[1].plot(results['time'], results['t_em'], label='Motor Torque', color='tab:green', alpha=0.8, linewidth=1)
+    axes[1].set_ylabel('Torque [Nm]')
+    axes[1].set_xlabel('Time [s]')
     axes[1].legend(loc='upper right')
-    axes[1].grid(True)
-    
-    # 3. Torque
-    axes[2].plot(results['time'], results['t_ice'], label='Engine Torque', color='red', alpha=0.7)
-    axes[2].plot(results['time'], results['t_em'], label='Motor Torque', color='green', alpha=0.7)
-    axes[2].set_ylabel('Torque [Nm]')
-    axes[2].legend(loc='upper right')
-    axes[2].grid(True)
-    
-    # 4. Equivalence Factor (s)
-    axes[3].plot(results['time'], results['s_factor'], label='Equiv Factor (s)', color='purple')
-    for y in [2.0886, 2.40]: # Visual reference lines
-        axes[3].axhline(y, color='gray', linestyle=':', alpha=0.5)
-    axes[3].set_ylabel('s [-]')
-    axes[3].set_xlabel('Time [s]')
-    axes[3].legend(loc='upper right')
-    axes[3].grid(True)
+    axes[1].grid(True, linestyle=':', alpha=0.7)
     
     plt.tight_layout()
-    plot_filename = f"{output_prefix}.png"
-    plt.savefig(plot_filename)
+    out_dir = os.path.join(base_dir, 'output')
+    os.makedirs(out_dir, exist_ok=True)
+    plot_filename = os.path.join(out_dir, f"{output_prefix}.png")
+    
+    plt.savefig(plot_filename, dpi=300)
     plt.close(fig) # Close to release memory
     
     fuel_kg = total_fuel_g / 1000.0
     print(f"Saved {plot_filename} | Fuel: {fuel_kg:.3f} kg")
     
-    return fuel_kg
+    return fuel_kg, results
 
 def main():
     # Backward Comp for manual run

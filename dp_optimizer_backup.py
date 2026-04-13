@@ -19,6 +19,7 @@ class DPOptimizer:
         times = cycle_df['time'].values
         self.dts = np.diff(times, prepend=times[0])
         self.dts[0] = 0.5 # Fix first step
+        self.vels = cycle_df['velocity_kmh'].values if 'velocity_kmh' in cycle_df.columns else np.zeros_like(times)
         
         # Physics inputs
         if 'T_ice_fcmap [Nm]' in cycle_df.columns:
@@ -81,10 +82,7 @@ class DPOptimizer:
         self.J_next = penalty_weight * (self.soc_grid - target_soc)**2
         
         # Control Variable Grid (T_mot)
-        # We'll adapt it dynamically or use fixed grid? 
-        # Fixed grid is easier for vectorization.
-        self.u_control_grid = np.linspace(-1500, 1500, 101) # T_mot candidates
-        self.nu = len(self.u_control_grid)
+        # Moved below after getting dynamic limits
         
         # Storage for Optimal Control (We store the optimal T_mot index or value?)
         # Storing value is easier, or index into u_grid.
@@ -92,6 +90,16 @@ class DPOptimizer:
         # u_opt[k, i] = index of best control
         self.u_opt_idx = np.zeros((self.N, self.ns), dtype=np.int32)
         
+        # Determine global max limits for DP grid to ensure coverage
+        max_rpm_test = np.linspace(400, 2500, 100)
+        global_t_em_min = min([-self.truck.em_params.get('OverloadTorque', 1050)])
+        global_t_em_max = max([self.truck.em_params.get('OverloadTorque', 1050)])
+        if self.truck.fld_drive_interp is not None:
+            global_t_em_min = min(float(self.truck.fld_drag_interp(r)) for r in max_rpm_test)
+            global_t_em_max = max(float(self.truck.fld_drive_interp(r)) for r in max_rpm_test)
+            
+        self.u_control_grid = np.linspace(global_t_em_min, global_t_em_max, 101) # T_mot candidates
+        self.nu = len(self.u_control_grid)
         
         # Pre-calc Physics constants
         # Dynamic Capacity from file (kWh) -> Coulombs (As)
@@ -125,8 +133,19 @@ class DPOptimizer:
             dt = self.dts[k]
             t_req = self.t_reqs[k]
             w_rpm = self.rpms[k]
+            v_kmh = self.vels[k]
+            
+            # Constraints Base Masks
+            mask_feas = np.ones((self.ns, self.nu), dtype=bool)
+            
+            if v_kmh < 0.1:
+                # Standstill constraint: Only T_mot = 0 is valid. Everything else becomes infeasible.
+                valid_u_mask = (self.u_control_grid == 0.0)
+                mask_feas[:, ~valid_u_mask] = False
             
             # --- 1. Calculate Next SOC using ECMS Logic ---
+            t_sys_min, t_sys_max = self.truck.get_system_limits(w_rpm)
+            t_req_hybrid = max(t_sys_min, min(t_sys_max, t_req))
             
             # P_elec from T_mot (Control)
             # Map (n, T) -> P_el (kW)
@@ -136,7 +155,8 @@ class DPOptimizer:
             P_el_u = P_el_1d.reshape(1, -1) # Broadcastable
             
             # Use Helper (Standard Physics)
-            I_bat, mask_feas = self._calc_current_standard(voc_grid, r_grid, P_el_u)
+            I_bat, mask_batt_feas = self._calc_current_standard(voc_grid, r_grid, P_el_u)
+            mask_feas &= mask_batt_feas
             
             # dSOC = - I * dt / Q 
             # I in Amps.
@@ -147,7 +167,7 @@ class DPOptimizer:
             
             # --- 2. Calculate Fuel Cost ---
             # T_eng = T_req - T_mot
-            T_eng_u = t_req - T_mot_u # (1, Nu)
+            T_eng_u = t_req_hybrid - T_mot_u # (1, Nu)
             
             # Fuel Map (n, T_eng) -> Fuel (1, Nu)
             # Again, depends only on Control, not SOC.
@@ -159,8 +179,8 @@ class DPOptimizer:
 
             # If RPM > 500 (Engine ON), Fuel cannot be less than Idle
             # (Assuming VECTO RPMs imply engine is spinning)
-            if w_rpm > 500:
-                Fuel_1d = np.maximum(Fuel_1d, idle_fuel_1d)
+#if w_rpm > 500:
+#Fuel_1d = np.maximum(Fuel_1d, idle_fuel_1d)
             
             Fuel_cost = (Fuel_1d * dt).reshape(1, -1) # (1, Nu)
             
@@ -169,24 +189,34 @@ class DPOptimizer:
             # 2. SOC Next out of bounds (0.3 to 0.7)
             mask_soc = (SOC_next >= self.soc_min) & (SOC_next <= self.soc_max)
             
-            # --- NEW: Dynamic Component Limits based on Map Curves ---
+            # Dynamic Torq Limits per step
             t_mot_min_phys, t_mot_max_phys = self.truck.get_limits(w_rpm)
             t_eng_min_phys, t_eng_max_phys = self.truck.get_eng_limits(w_rpm)
             
-            mask_mot_lim = (T_mot_u >= t_mot_min_phys) & (T_mot_u <= t_mot_max_phys)
-            mask_eng_lim = (T_eng_u >= t_eng_min_phys) & (T_eng_u <= t_eng_max_phys)
-            mask_torque_lim = mask_mot_lim & mask_eng_lim
+            # 3. Component Physical Limits
+            # Add tolerance due to discrete control grid to prevent empty feasible sets
+            tol = 40.0 # Nm
+            mask_limits = (self.u_control_grid >= t_mot_min_phys - tol) & (self.u_control_grid <= t_mot_max_phys + tol)
+            mask_limits &= (T_eng_u.ravel() >= t_eng_min_phys - tol) & (T_eng_u.ravel() <= t_eng_max_phys + tol)
+            mask_limits = mask_limits.reshape(1, -1)
+
+            mask_total = mask_feas & mask_soc & mask_limits
             
-            # 3. Component Limits (NaN in maps)
+            # Additional Standstill Constraint (0 kmh)
+            if v_kmh < 0.1:
+                # Force T_mot = 0
+                idx_zero = np.argmin(np.abs(self.u_control_grid))
+                mask_total &= (np.arange(self.nu) == idx_zero).reshape(1, -1)
+                mask_total[:, idx_zero] = True # Ensure at least 0 is feasible
             
             Total_Cost = Fuel_cost.copy() 
             
             # Handle Infeasibles
             Total_Cost = np.broadcast_to(Total_Cost, (self.ns, self.nu)).copy()
-            Total_Cost[~mask_feas] = np.inf
-            Total_Cost[~mask_soc] = np.inf
-            Total_Cost[~np.broadcast_to(mask_torque_lim, (self.ns, self.nu))] = np.inf
-            Total_Cost[np.isnan(Total_Cost)] = np.inf 
+            # Use large penalty instead of inf to prevent backward cascade of infeasibility blocking the entire grid
+            PENALTY = 1e9
+            Total_Cost[~mask_total] = PENALTY
+            Total_Cost[np.isnan(Total_Cost)] = PENALTY 
             
             # --- 3. Value Function Interpolation ---
             # Evaluate J_next at SOC_next
@@ -196,7 +226,7 @@ class DPOptimizer:
             
             # extrapolation? usually inf, but we enforce bounds mask_soc. 
             # So just valid points.
-            J_future = np.interp(SOC_next_flat, self.soc_grid, self.J_next, left=np.inf, right=np.inf)
+            J_future = np.interp(SOC_next_flat, self.soc_grid, self.J_next, left=PENALTY, right=PENALTY)
             J_future = J_future.reshape(self.ns, self.nu)
             
             # Cost-to-Go
@@ -206,6 +236,12 @@ class DPOptimizer:
             # Use nanmin to ignore NaNs
             min_vals = np.nanmin(Q_values, axis=1)
             min_idxs = np.nanargmin(Q_values, axis=1)
+            
+            # Safe Fallback: if all costs are > 1e11, force Motor Torque to closest equivalent of 0, not max regenerative limit.
+            all_inf = min_vals >= 1e11
+            if np.any(all_inf):
+                idx_zero = np.argmin(np.abs(self.u_control_grid))
+                min_idxs[all_inf] = idx_zero
             
             self.J_next = min_vals
             self.u_opt_idx[k, :] = min_idxs
@@ -302,13 +338,23 @@ class DPOptimizer:
             opt_indices = self.u_opt_idx[k, :] # vector of Indices
             opt_tmots = self.u_control_grid[opt_indices] # vector of T_mot values
             
-            # Interpolate T_mot for soc_curr
-            t_mot = np.interp(soc_curr, self.soc_grid, opt_tmots)
+            # Constraints override for reconstruct
+            v_kmh = self.vels[k]
+            if v_kmh < 0.1:
+                opt_tmots[:] = 0.0
+            
+            # Use nearest instead of linear interpolation for control
+            # Interpolating optimal controls can lead to completely sub-optimal intermediate controls.
+            idx_soc = np.abs(self.soc_grid - soc_curr).argmin()
+            t_mot = opt_tmots[idx_soc]
             
             # Sim Forward
             dt = self.dts[k]
             t_req = self.t_reqs[k]
             w_rpm = self.rpms[k]
+            
+            t_sys_min, t_sys_max = self.truck.get_system_limits(w_rpm)
+            t_req_hybrid = max(t_sys_min, min(t_sys_max, t_req))
             
             # Physics
             val_eff = self.truck.em_eff_interp([[w_rpm, t_mot]])
@@ -333,16 +379,23 @@ class DPOptimizer:
             
             # Assuming valid path if DP converged
             if not valid:
-                print(f"Warning: Reconstruct infeasible at k={k}")
                 i_bat = 0.0
                 
             dSOC = - (i_bat * dt) / cap_coulombs
             soc_next = soc_curr + dSOC
             
-            t_eng = t_req - t_mot
+            t_eng = t_req_hybrid - t_mot
             
+            # Reconstruct Fuel with same idle logic as backward pass
             val_fuel = self.truck.fuel_interp([[w_rpm, t_eng]])
             if hasattr(val_fuel, "item"): val_fuel = val_fuel.item()
+            
+            val_idle_fuel = self.truck.fuel_interp([[w_rpm, 0.0]])
+            if hasattr(val_idle_fuel, "item"): val_idle_fuel = val_idle_fuel.item()
+            
+#if w_rpm > 500:
+#val_fuel = max(val_fuel, val_idle_fuel)
+                
             fuel = float(val_fuel) * dt
             if np.isnan(fuel): fuel = 0.0
             

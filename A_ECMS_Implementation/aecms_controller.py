@@ -74,7 +74,7 @@ class AECMS_Controller(ECMS_Controller):
         print(f"  Manual  (Average) : eta={eta_eng_avg_man:.3f}, s_d={s_dis_manual:.3f}, s_c={s_chg_manual:.3f}")
         print(f"  FINAL (Average)   : s_dis_0={self.s_dis_0:.4f}, s_chg_0={self.s_chg_0:.4f}")
         
-    def decide_split(self, t_req, rpm, soc):
+    def decide_split(self, t_req, rpm, soc, v_kmh=None):
         """
         Adapts s_dis/s_chg and calls parent optimization.
         """
@@ -94,4 +94,4 @@ class AECMS_Controller(ECMS_Controller):
         self.s_dis = max(0.5, min(5.0, self.s_dis))
         self.s_chg = max(0.5, min(5.0, self.s_chg))
         
-        return super().decide_split(t_req, rpm, soc)
+        return super().decide_split(t_req, rpm, soc, v_kmh)
