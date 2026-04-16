@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.tri as mtri
 from scipy.interpolate import interp1d
+from scipy.ndimage import gaussian_filter, zoom
+from matplotlib.colors import PowerNorm
 
 from vecto_loader import VectoLoader
 from p2_hybrid import P2HybridTruck
@@ -53,7 +55,10 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     
     # Plotting (same 3-panel layout as strategy plots)
     plt.rcParams.update({'font.size': 12, 'axes.labelsize': 12, 'legend.fontsize': 11})
-    fig = plt.figure(figsize=(14, 10))
+    # Enable runtime percentage overlays (heatmap view instead of sparse points)
+    show_ice_runtime_percentage_overlay = True
+
+    fig = plt.figure(figsize=(14, 8))
     gs = fig.add_gridspec(2, 2, height_ratios=[1.2, 1.0], hspace=0.35, wspace=0.25)
     ax_soc = fig.add_subplot(gs[0, :])
     ax_ice = fig.add_subplot(gs[1, 0])
@@ -72,7 +77,7 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
 
     ax_soc.set_ylabel('Stav nabití [%]')
     ax_soc.set_xlabel('Čas [s]')
-    ax_soc.set_title(f'Strategie: DP | Kapacita baterie: {bat_capacity_kwh} | Palivo: {fuel_kg:.2f} kg', fontweight='bold')
+    ax_soc.set_title(f'Strategie: DP | Kapacita baterie: {bat_capacity_kwh} kWh | Palivo: {fuel_kg:.2f} kg', fontweight='bold')
     ax_soc.legend(loc='upper right')
     ax_soc.grid(True, linestyle=':', alpha=0.7)
 
@@ -147,28 +152,88 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     t_eng_arr = np.asarray(res.get('t_eng', []))
 
     if bsfc_triang is not None and bsfc_vals is not None and len(bsfc_vals) > 0:
-        levels_bsfc = np.concatenate([np.arange(182, 210, 2), np.arange(210, 340, 10)])
-        cf_bsfc = ax_ice.tricontourf(bsfc_triang, bsfc_vals, levels=levels_bsfc, cmap='Spectral_r', extend='both', alpha=0.9, zorder=0)
-        ax_ice.tricontour(bsfc_triang, bsfc_vals, levels=np.arange(190, 320, 10), colors='black', linewidths=0.35, alpha=0.35, zorder=1)
-        fig.colorbar(cf_bsfc, ax=ax_ice, label='Měrná spotřeba paliva [g/kWh]')
+        # Draw monochrome BSFC contour lines for context
+        cs_bsfc = ax_ice.tricontour(
+            bsfc_triang,
+            bsfc_vals,
+            levels=np.concatenate([np.arange(182, 210, 2), np.arange(210, 340, 10)]),
+            colors='0.25',
+            linewidths=0.4,
+            alpha=0.35,
+            zorder=4,
+        )
+        ax_ice.clabel(cs_bsfc, inline=True, fontsize=7, fmt='%d', colors='0.25')
 
+    bsfc_handle = None
     if rpm_arr.size > 0 and t_eng_arr.size > 0:
         mask_ice = t_eng_arr > 0.0
         rpm_ice = rpm_arr[mask_ice]
         t_ice = t_eng_arr[mask_ice]
+
         if rpm_ice.size > 0:
-            stride_ice = max(1, rpm_ice.size // 1400)
-            ax_ice.scatter(
-                rpm_ice[::stride_ice],
-                t_ice[::stride_ice],
-                s=10,
-                c='black',
-                alpha=0.24,
-                edgecolors='white',
-                linewidths=0.18,
-                zorder=4,
-                label='Provozní body',
+            x_min_ice = float(min(rpm_ice.min(), max_rpm.min() if max_rpm.size > 0 else 400.0))
+            x_max_ice = float(max(rpm_ice.max(), max_rpm.max() if max_rpm.size > 0 else 2500.0))
+            y_max_ice = float(max_tq.max() * 1.05) if max_tq.size > 0 else float(max(200.0, np.max(t_ice) * 1.05))
+
+            hist_ice, xedges_ice, yedges_ice = np.histogram2d(
+                rpm_ice,
+                t_ice,
+                bins=50,
+                range=[[x_min_ice, x_max_ice], [0, y_max_ice]],
             )
+            if hist_ice.sum() > 0:
+                hist_ice = (hist_ice / hist_ice.sum()) * 100.0
+                hist_smooth = gaussian_filter(hist_ice, sigma=0.85) if gaussian_filter is not None else hist_ice
+                hist_visible = np.ma.masked_less_equal(hist_smooth, 0.0)
+
+                if show_ice_runtime_percentage_overlay and hist_visible.count() > 0:
+                    positive_values = hist_smooth[hist_smooth > 0.0]
+                    vmin = max(float(np.percentile(positive_values, 1)), 0.005)
+                    vmax = float(np.nanpercentile(positive_values, 99.5))
+                    if vmax <= vmin:
+                        vmax = vmin * 1.01
+                    if vmax > 0:
+                        upsample = 4
+                        smooth_fine = zoom(hist_smooth.T, zoom=upsample, order=3) if zoom is not None else hist_smooth.T
+                        smooth_fine = np.ma.masked_less_equal(smooth_fine, 0.0)
+
+                        x_fine = np.linspace(x_min_ice, x_max_ice, smooth_fine.shape[1])
+                        y_fine = np.linspace(0.0, y_max_ice, smooth_fine.shape[0])
+
+                        if max_rpm.size > 1 and max_tq.size > 1:
+                            max_tq_interp = np.interp(x_fine, max_rpm, max_tq, left=np.nan, right=np.nan)
+                            envelope_mask = y_fine[:, None] > max_tq_interp[None, :]
+                            envelope_mask |= ~np.isfinite(max_tq_interp)[None, :]
+                            smooth_fine = np.ma.masked_array(smooth_fine, mask=np.ma.getmaskarray(smooth_fine) | envelope_mask)
+
+                        bsfc_handle = ax_ice.imshow(
+                            smooth_fine,
+                            origin='lower',
+                            extent=[x_min_ice, x_max_ice, 0, y_max_ice*1.04],
+                            cmap='Blues',
+                            norm=PowerNorm(gamma=0.27, vmin=vmin, vmax=vmax),
+                            interpolation='bicubic',
+                            alpha=1,
+                            aspect='auto',
+                            zorder=1,
+                        )
+
+            if not show_ice_runtime_percentage_overlay and rpm_ice.size > 0:
+                stride_ice = max(1, rpm_ice.size // 1400)
+                ax_ice.scatter(
+                    rpm_ice[::stride_ice],
+                    t_ice[::stride_ice],
+                    s=10,
+                    c='black',
+                    alpha=0.24,
+                    edgecolors='white',
+                    linewidths=0.18,
+                    zorder=4,
+                    label='Provozní body',
+                )
+
+    if bsfc_handle is not None:
+        fig.colorbar(bsfc_handle, ax=ax_ice, label='Časový podíl [%]')
 
     if max_rpm.size > 0:
         ax_ice.plot(max_rpm, max_tq, 'k-', linewidth=3.0, label='Křivka max. točivého momentu', zorder=5)
@@ -204,7 +269,7 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     ax_ice.set_ylabel('Točivý moment motoru [Nm]')
     ax_ice.set_xlim(x_min, x_max)
     ax_ice.set_ylim(0.0, ice_y_top)
-    ax_ice.grid(True, linestyle=':', alpha=0.7)
+    ax_ice.grid(False)
     if max_rpm.size > 0 or (rpm_arr.size > 0 and t_eng_arr.size > 0):
         ax_ice.legend(loc='upper right', fontsize=8, framealpha=0.85, borderpad=0.3, labelspacing=0.25, handlelength=1.4, markerscale=0.85)
 
@@ -276,29 +341,90 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
         print(f"Warning: Could not build DP E-Motor efficiency map: {e}")
 
     t_mot_arr = np.asarray(res.get('t_mot', []))
+    # Efficiency contour background: keep monochrome contour lines and overlay runtime heatmap in dark green
     if em_eff_triang is not None and em_eff_vals is not None and len(em_eff_vals) > 0:
-        levels_eff = np.arange(60, 100, 2)
-        cf_eff = ax_em.tricontourf(em_eff_triang, em_eff_vals, levels=levels_eff, cmap='RdYlGn', extend='both', alpha=0.85, zorder=0)
-        ax_em.tricontour(em_eff_triang, em_eff_vals, levels=[65, 70, 75, 80, 85, 90, 92, 95], colors='black', linewidths=0.35, alpha=0.35, zorder=1)
-        fig.colorbar(cf_eff, ax=ax_em, label='Účinnost [%]')
+        cs_eff = ax_em.tricontour(
+            em_eff_triang,
+            em_eff_vals,
+            levels=np.arange(60, 100, 2),
+            colors='0.25',
+            linewidths=0.4,
+            alpha=0.35,
+            zorder=4,
+        )
+        ax_em.clabel(cs_eff, inline=True, fontsize=7, fmt='%d', colors='0.25')
 
+    em_handle = None
     if rpm_arr.size > 0 and t_mot_arr.size > 0:
         mask_em = np.abs(t_mot_arr) > 0.5
         rpm_em = rpm_arr[mask_em]
         t_em = t_mot_arr[mask_em]
+
         if rpm_em.size > 0:
-            stride_em = max(1, rpm_em.size // 1400)
-            ax_em.scatter(
-                rpm_em[::stride_em],
-                t_em[::stride_em],
-                s=10,
-                c='black',
-                alpha=0.22,
-                edgecolors='white',
-                linewidths=0.18,
-                zorder=3,
-                label='Provozní body',
+            x_min_em = float(min(rpm_em.min(), em_rpm_lim.min() if em_rpm_lim.size > 0 else 0.0))
+            x_max_em = float(max(rpm_em.max(), em_rpm_lim.max() if em_rpm_lim.size > 0 else 3000.0))
+            y_min_em = float(min(t_em.min(), em_tq_drag.min() if em_tq_drag.size > 0 else -1500.0))
+            y_max_em = float(max(t_em.max(), em_tq_drive.max() if em_tq_drive.size > 0 else 1500.0))
+
+            hist_em, xedges_em, yedges_em = np.histogram2d(
+                rpm_em,
+                t_em,
+                bins=50,
+                range=[[x_min_em, x_max_em], [y_min_em, y_max_em]],
             )
+            if hist_em.sum() > 0:
+                hist_em = (hist_em / hist_em.sum()) * 100.0
+                hist_smooth_em = gaussian_filter(hist_em, sigma=0.85) if gaussian_filter is not None else hist_em
+                hist_visible_em = np.ma.masked_less_equal(hist_smooth_em, 0.0)
+
+                if show_ice_runtime_percentage_overlay and hist_visible_em.count() > 0:
+                    positive_values = hist_smooth_em[hist_smooth_em > 0.0]
+                    vmin = max(float(np.percentile(positive_values, 1)), 0.009)
+                    vmax = float(np.nanpercentile(positive_values, 99.5))
+                    if vmax <= vmin:
+                        vmax = vmin * 1.01
+                    if vmax > 0:
+                        smooth_fine_em = zoom(hist_smooth_em.T, zoom=3, order=2) if zoom is not None else hist_smooth_em.T
+                        smooth_fine_em = np.ma.masked_less_equal(smooth_fine_em, 0.0)
+
+                        x_fine_em = np.linspace(x_min_em, x_max_em, smooth_fine_em.shape[1])
+                        y_fine_em = np.linspace(y_min_em, y_max_em, smooth_fine_em.shape[0])
+
+                        if em_rpm_lim.size > 1 and em_tq_drive.size > 1 and em_tq_drag.size > 1:
+                            max_tq_interp_drive = np.interp(x_fine_em, em_rpm_lim, em_tq_drive, left=np.nan, right=np.nan)
+                            max_tq_interp_drag = np.interp(x_fine_em, em_rpm_lim, em_tq_drag, left=np.nan, right=np.nan)
+                            envelope_mask_em = (y_fine_em[:, None] > max_tq_interp_drive[None, :]) | (y_fine_em[:, None] < max_tq_interp_drag[None, :])
+                            envelope_mask_em |= ~np.isfinite(max_tq_interp_drive)[None, :]
+                            envelope_mask_em |= ~np.isfinite(max_tq_interp_drag)[None, :]
+                            smooth_fine_em = np.ma.masked_array(smooth_fine_em, mask=np.ma.getmaskarray(smooth_fine_em) | envelope_mask_em)
+                            em_handle = ax_em.imshow(
+                            smooth_fine_em,
+                            origin='lower',
+                            extent=[x_min_em, x_max_em, y_min_em*1.04, y_max_em*1.04],
+                            cmap='Greens',
+                            norm=PowerNorm(gamma=0.27, vmin=vmin, vmax=vmax),
+                            interpolation='bicubic',
+                            alpha=1,
+                            aspect='auto',
+                            zorder=1,
+                        )
+
+            if not show_ice_runtime_percentage_overlay and rpm_em.size > 0:
+                stride_em = max(1, rpm_em.size // 1400)
+                ax_em.scatter(
+                    rpm_em[::stride_em],
+                    t_em[::stride_em],
+                    s=10,
+                    c='black',
+                    alpha=0.22,
+                    edgecolors='white',
+                    linewidths=0.18,
+                    zorder=3,
+                    label='Provozní body',
+                )
+
+    if em_handle is not None:
+        fig.colorbar(em_handle, ax=ax_em, label='Časový podíl [%]')
 
     if em_rpm_lim.size > 0:
         ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max. hnací moment')
@@ -364,7 +490,7 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
 
     ax_em.set_xlim(x_em_min, x_em_max)
     ax_em.set_ylim(y_em_min, y_em_max)
-    ax_em.grid(True, linestyle=':', alpha=0.7)
+    ax_em.grid(False)
     if em_rpm_lim.size > 0 or (rpm_arr.size > 0 and t_mot_arr.size > 0):
         ax_em.legend(loc='upper right', fontsize=8, framealpha=0.85, borderpad=0.3, labelspacing=0.25, handlelength=1.4, markerscale=0.85)
 

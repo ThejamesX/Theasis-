@@ -219,7 +219,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     # print("Simulation Complete.")
     # --- Plotting ---
     plt.rcParams.update({'font.size': 12, 'axes.labelsize': 12, 'legend.fontsize': 11})
-    fig = plt.figure(figsize=(14, 10))
+    fig = plt.figure(figsize=(14, 8))
     gs = fig.add_gridspec(2, 2, height_ratios=[1.2, 1.0], hspace=0.35, wspace=0.25)
     ax_soc = fig.add_subplot(gs[0, :])
     ax_ice = fig.add_subplot(gs[1, 0])
@@ -233,17 +233,18 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         ax_soc.set_xlim(float(np.min(soc_time)), float(np.max(soc_time)))
     ax_soc.set_ylabel('Stav nabití [%]')
     ax_soc.set_xlabel('Čas [s]')
-    ax_soc.set_title(f'Strategie: {STRATEGY} | Kapacita baterie: {bat_capacity_kwh} | Palivo: {total_fuel_g/1000:.2f} kg', fontweight='bold')
+    ax_soc.set_title(f'Strategie: {STRATEGY} | Kapacita baterie: {bat_capacity_kwh} kWh | Palivo: {total_fuel_g/1000:.2f} kg', fontweight='bold')
     ax_soc.legend(loc='upper right')
     ax_soc.grid(True, linestyle=':', alpha=0.7)
 
     try:
-        from scipy.ndimage import gaussian_filter
+        from scipy.ndimage import gaussian_filter, zoom
     except Exception:
         gaussian_filter = None
+        zoom = None
 
-    # Keep percentage overlay code available but default to point-only runtime view.
-    show_ice_runtime_percentage_overlay = False
+    # Keep percentage overlay code enabled, but points removed as requested.
+    show_ice_runtime_percentage_overlay = True
 
     rpm_arr = np.array(results['rpm_ice'])
     t_ice_arr = np.array(results['t_ice'])
@@ -325,83 +326,90 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     # BSFC background first so runtime overlay is directly readable against efficiency islands.
     if bsfc_triang is not None and bsfc_vals is not None and len(bsfc_vals) > 0:
         levels_bsfc = np.concatenate([np.arange(182, 210, 2), np.arange(210, 340, 10)])
-        cf_bsfc = ax_ice.tricontourf(
+        cs_bsfc = ax_ice.tricontour(
             bsfc_triang,
             bsfc_vals,
             levels=levels_bsfc,
-            cmap='Spectral_r',
-            extend='both',
-            alpha=0.8,
-            zorder=0,
-        )
-        ax_ice.tricontour(
-            bsfc_triang,
-            bsfc_vals,
-            levels=np.arange(190, 320, 10),
-            colors='black',
-            linewidths=0.35,
+            colors='0.25',
+            linewidths=0.4,
             alpha=0.35,
-            zorder=1,
+            zorder=4,
         )
-        fig.colorbar(cf_bsfc, ax=ax_ice, label='Měrná spotřeba paliva [g/kWh]')
+        ax_ice.clabel(cs_bsfc, inline=True, fontsize=7, fmt='%d', colors='0.25')
 
+    bsfc_handle = None
     if rpm_ice_map.size > 0:
+        x_min_ice = float(min(rpm_ice_map.min(), max_rpm.min() if max_rpm.size > 0 else 400.0))
+        x_max_ice = float(max(rpm_ice_map.max(), max_rpm.max() if max_rpm.size > 0 else 2500.0))
         y_max_ice = float(max_tq.max() * 1.05) if max_tq.size > 0 else float(max(200.0, np.max(t_ice_map) * 1.05))
+        
         hist_ice, xedges_ice, yedges_ice = np.histogram2d(
             rpm_ice_map,
             t_ice_map,
             bins=50,
-            range=[[400, 2500], [0, y_max_ice]],
+            range=[[x_min_ice, x_max_ice], [0, y_max_ice]],
         )
         if hist_ice.sum() > 0:
             hist_ice = (hist_ice / hist_ice.sum()) * 100.0
+            if gaussian_filter is not None:
+                hist_smooth = gaussian_filter(hist_ice, sigma=0.85)
+            else:
+                hist_smooth = hist_ice
+                
+            hist_visible = np.ma.masked_less_equal(hist_smooth, 0.0)
 
-        hist_ice_map = gaussian_filter(hist_ice, sigma=1.0) if gaussian_filter is not None else hist_ice
-        # Keep low-occupancy runtime visible while removing near-zero speckle.
-        hist_ice_map[hist_ice_map < 0.005] = np.nan
-        X_ice, Y_ice = np.meshgrid(xedges_ice[:-1], yedges_ice[:-1])
-        finite_ice = np.isfinite(hist_ice_map)
-        if show_ice_runtime_percentage_overlay and np.any(finite_ice):
-            vmax_ice = float(np.nanmax(hist_ice_map))
-            if vmax_ice > 0:
-                ax_ice.contourf(
-                    X_ice,
-                    Y_ice,
-                    hist_ice_map.T,
-                    levels=np.linspace(0.0, vmax_ice, 18),
-                    cmap='Blues',
-                    norm=PowerNorm(gamma=0.45, vmin=0.0, vmax=vmax_ice),
-                    alpha=0.28,
-                    zorder=2,
-                )
-                levels_occ = np.array([0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8, 1.5, 3.0])
-                levels_occ = levels_occ[levels_occ <= vmax_ice]
-                if levels_occ.size > 0:
-                    cs_ice = ax_ice.contour(
-                        X_ice,
-                        Y_ice,
-                        hist_ice_map.T,
-                        levels=levels_occ,
-                        colors='#0b4fa2',
-                        linewidths=1.0,
-                        alpha=0.9,
-                        zorder=3,
+            if show_ice_runtime_percentage_overlay and hist_visible.count() > 0:
+                positive_values = hist_smooth[hist_smooth > 0.0]
+                vmin = max(float(np.percentile(positive_values, 1)), 0.005)
+                vmax = float(np.nanpercentile(positive_values, 99.5))
+                if vmax <= vmin:
+                    vmax = vmin * 1.01
+                if vmax > 0:
+                    if zoom is not None:
+                        upsample = 4
+                        smooth_fine = zoom(hist_smooth.T, zoom=upsample, order=3)
+                    else:
+                        smooth_fine = hist_smooth.T
+                        
+                    smooth_fine = np.ma.masked_less_equal(smooth_fine, 0.0)
+
+                    x_fine = np.linspace(x_min_ice, x_max_ice, smooth_fine.shape[1])
+                    y_fine = np.linspace(0.0, y_max_ice, smooth_fine.shape[0])
+
+                    if max_rpm.size > 1 and max_tq.size > 1:
+                        max_tq_interp = np.interp(x_fine, max_rpm, max_tq, left=np.nan, right=np.nan)
+                        envelope_mask = y_fine[:, None] > max_tq_interp[None, :]
+                        envelope_mask |= ~np.isfinite(max_tq_interp)[None, :]
+                        smooth_fine = np.ma.masked_array(smooth_fine, mask=np.ma.getmaskarray(smooth_fine) | envelope_mask)
+
+                    bsfc_handle = ax_ice.imshow(
+                        smooth_fine,
+                        origin='lower',
+                        extent=[x_min_ice, x_max_ice, 0, y_max_ice*1.01],
+                        cmap='Blues',
+                        norm=PowerNorm(gamma=0.27, vmin=vmin, vmax=vmax),
+                        interpolation='bicubic',
+                        alpha=1,
+                        aspect='auto',
+                        zorder=1,
                     )
-                    ax_ice.clabel(cs_ice, inline=True, fontsize=7, fmt='%g%%')
+        
+        if not show_ice_runtime_percentage_overlay:
+            stride_ice = max(1, rpm_ice_map.size // 1400)
+            ax_ice.scatter(
+                rpm_ice_map[::stride_ice],
+                t_ice_map[::stride_ice],
+                s=13,
+                c='black',
+                alpha=0.24,
+                edgecolors='white',
+                linewidths=0.15,
+                zorder=4,
+                label='Provozní body',
+            )
 
-        # Show actual runtime trace points so operating region is unambiguous.
-        stride_ice = max(1, rpm_ice_map.size // 1400)
-        ax_ice.scatter(
-            rpm_ice_map[::stride_ice],
-            t_ice_map[::stride_ice],
-            s=13,
-            c='black',
-            alpha=0.24,
-            edgecolors='white',
-            linewidths=0.15,
-            zorder=4,
-            label='Provozní body',
-        )
+    if bsfc_handle is not None:
+        fig.colorbar(bsfc_handle, ax=ax_ice, label='Časový podíl běhu [%]')
 
     if max_rpm.size > 0:
         ax_ice.plot(max_rpm, max_tq, 'k-', linewidth=3.0, label='Křivka max. točivého momentu', zorder=5)
@@ -434,7 +442,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     ax_ice.set_ylabel('Točivý moment motoru [Nm]')
     ax_ice.set_xlim(x_min, x_max)
     ax_ice.set_ylim(0.0, ice_ylim_top)
-    ax_ice.grid(True, linestyle=':', alpha=0.7)
+    ax_ice.grid(False)
     if max_rpm.size > 0 or rpm_ice_map.size > 0:
         ax_ice.legend(
             loc='upper right',
@@ -535,56 +543,93 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     # Efficiency contour map background.
     if em_eff_triang is not None and em_eff_vals is not None and len(em_eff_vals) > 0:
         levels_eff = np.arange(60, 100, 2)
-        cf_eff = ax_em.tricontourf(
+        cs_eff = ax_em.tricontour(
             em_eff_triang,
             em_eff_vals,
             levels=levels_eff,
-            cmap='RdYlGn',
-            extend='both',
-            alpha=0.85,
-            zorder=0,
-        )
-        ax_em.tricontour(
-            em_eff_triang,
-            em_eff_vals,
-            levels=[65, 70, 75, 80, 85, 90, 92, 95],
-            colors='black',
-            linewidths=0.35,
+            colors='0.25',
+            linewidths=0.4,
             alpha=0.35,
-            zorder=1,
+            zorder=4,
         )
-        fig.colorbar(cf_eff, ax=ax_em, label='Účinnost [%]')
+        ax_em.clabel(cs_eff, inline=True, fontsize=7, fmt='%d', colors='0.25')
 
+    em_handle = None
     if rpm_em_map.size > 0:
-        # Point-based runtime view for E-Motor map (same idea as ICE points).
-        stride_em = max(1, rpm_em_map.size // 1400)
-        ax_em.scatter(
-            rpm_em_map[::stride_em],
-            t_em_map[::stride_em],
-            s=13,
-            c='black',
-            alpha=0.15,
-            edgecolors='white',
-            linewidths=0.2,
-            zorder=3,
-            label='Provozní body',
-        )
+        x_min_em = float(min(rpm_em_map.min(), em_rpm_lim.min() if em_rpm_lim.size > 0 else 0.0))
+        x_max_em = float(max(rpm_em_map.max(), em_rpm_lim.max() if em_rpm_lim.size > 0 else 3000.0))
+        y_min_em = float(min(t_em_map.min(), em_tq_drag.min() if em_tq_drag.size > 0 else -1500.0))
+        y_max_em = float(max(t_em_map.max(), em_tq_drive.max() if em_tq_drive.size > 0 else 1500.0))
 
-        # Intentionally kept (commented) so runtime-percentage overlay can be re-enabled later.
-        # hist_em, xedges_em, yedges_em = np.histogram2d(
-        #     rpm_em_map,
-        #     t_em_map,
-        #     bins=50,
-        #     range=[[0, 3000], [-1500, 1500]],
-        # )
-        # if hist_em.sum() > 0:
-        #     hist_em = (hist_em / hist_em.sum()) * 100.0
-        #
-        # hist_em_map = gaussian_filter(hist_em, sigma=1.0) if gaussian_filter is not None else hist_em
-        # hist_em_map[hist_em_map < 0.05] = np.nan
-        # X_em, Y_em = np.meshgrid(xedges_em[:-1], yedges_em[:-1])
-        # cf_em = ax_em.contourf(X_em, Y_em, hist_em_map.T, cmap='Greens', levels=15, alpha=0.8)
-        # fig.colorbar(cf_em, ax=ax_em, label='Time share / %')
+        hist_em, xedges_em, yedges_em = np.histogram2d(
+            rpm_em_map,
+            t_em_map,
+            bins=50,
+            range=[[x_min_em, x_max_em], [y_min_em, y_max_em]],
+        )
+        if hist_em.sum() > 0:
+            hist_em = (hist_em / hist_em.sum()) * 100.0
+            if gaussian_filter is not None:
+                hist_smooth_em = gaussian_filter(hist_em, sigma=0.85)
+            else:
+                hist_smooth_em = hist_em
+                
+            hist_visible_em = np.ma.masked_less_equal(hist_smooth_em, 0.0)
+
+            if show_ice_runtime_percentage_overlay and hist_visible_em.count() > 0:
+                positive_values = hist_smooth_em[hist_smooth_em > 0.0]
+                vmin = max(float(np.percentile(positive_values, 1)), 0.009)
+                vmax = float(np.nanpercentile(positive_values, 99.5))
+                if vmax <= vmin:
+                    vmax = vmin * 1.01
+                if vmax > 0:
+                    if zoom is not None:
+                        upsample = 3
+                        smooth_fine_em = zoom(hist_smooth_em.T, zoom=upsample, order=2)
+                    else:
+                        smooth_fine_em = hist_smooth_em.T
+                        
+                    smooth_fine_em = np.ma.masked_less_equal(smooth_fine_em, 0.0)
+
+                    x_fine_em = np.linspace(x_min_em, x_max_em, smooth_fine_em.shape[1])
+                    y_fine_em = np.linspace(y_min_em, y_max_em, smooth_fine_em.shape[0])
+
+                    if em_rpm_lim.size > 1 and em_tq_drive.size > 1 and em_tq_drag.size > 1:
+                        max_tq_interp_drive = np.interp(x_fine_em, em_rpm_lim, em_tq_drive, left=np.nan, right=np.nan)
+                        max_tq_interp_drag = np.interp(x_fine_em, em_rpm_lim, em_tq_drag, left=np.nan, right=np.nan)
+                        envelope_mask_em = (y_fine_em[:, None] > max_tq_interp_drive[None, :]) | (y_fine_em[:, None] < max_tq_interp_drag[None, :])
+                        envelope_mask_em |= ~np.isfinite(max_tq_interp_drive)[None, :]
+                        envelope_mask_em |= ~np.isfinite(max_tq_interp_drag)[None, :]
+                        smooth_fine_em = np.ma.masked_array(smooth_fine_em, mask=np.ma.getmaskarray(smooth_fine_em) | envelope_mask_em)
+
+                    em_handle = ax_em.imshow(
+                        smooth_fine_em,
+                        origin='lower',
+                        extent=[x_min_em, x_max_em, y_min_em*1.04, y_max_em*1.04],
+                        cmap='Greens',
+                        norm=PowerNorm(gamma=0.27, vmin=vmin, vmax=vmax),
+                        interpolation='bicubic',
+                        alpha=1,
+                        aspect='auto',
+                        zorder=1,
+                    )
+        
+        if not show_ice_runtime_percentage_overlay:
+            stride_em = max(1, rpm_em_map.size // 1400)
+            ax_em.scatter(
+                rpm_em_map[::stride_em],
+                t_em_map[::stride_em],
+                s=13,
+                c='black',
+                alpha=0.15,
+                edgecolors='white',
+                linewidths=0.2,
+                zorder=3,
+                label='Provozní body',
+            )
+
+    if em_handle is not None:
+        fig.colorbar(em_handle, ax=ax_em, label='Časový podíl běhu [%]')
 
     if em_rpm_lim.size > 0:
         ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max. hnací moment')
@@ -648,7 +693,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
 
     ax_em.set_xlim(x_em_min, x_em_max)
     ax_em.set_ylim(y_em_min, y_em_max)
-    ax_em.grid(True, linestyle=':', alpha=0.7)
+    ax_em.grid(False)
     if em_rpm_lim.size > 0 or rpm_em_map.size > 0:
         ax_em.legend(
             loc='upper right',

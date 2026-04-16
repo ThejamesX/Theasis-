@@ -9,6 +9,22 @@ from scipy.ndimage import zoom
 from main import run_ecms_simulation
 from run_dp import run_dp_simulation
 
+
+def get_cycle_display_name(cycle_name):
+    if 'LongHaulEMSReferenceLoad' in cycle_name:
+        return 'Dálková přeprava'
+    if 'RegionalDeliveryEMSReferenceLoad' in cycle_name:
+        return 'Regionální rozvoz'
+    return cycle_name.replace('_', ' ')
+
+
+def get_cycle_length_km(cycle_name):
+    if 'LongHaulEMSReferenceLoad' in cycle_name:
+        return 100.2
+    if 'RegionalDeliveryEMSReferenceLoad' in cycle_name:
+        return 100.0
+    return None
+
 def main():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     cycle_dir = os.path.join(base_dir, "Driving Cycle")
@@ -34,7 +50,7 @@ def main():
     plot_standalone_em_maps = False
     
     # Note: main.py expects 'A-ECMS' instead of 'AECMS'
-    strategies_ecms = ['AECMS'] #'ECMS', 'AECMS', 'PECMS'
+    strategies_ecms = ['PECMS'] #'ECMS', 'AECMS', 'PECMS'
     
     results = []
     out_dir = os.path.join(base_dir, 'output')
@@ -111,12 +127,14 @@ def main():
                     
                 # Plot Driving Cycle and Torque Request ONCE per cycle
                 if not cycle_plotted and 'velocity_kmh' in res_ecms:
-                    fig_dc, axes_dc = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+                    fig_dc, axes_dc = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+                    cycle_length_km = get_cycle_length_km(cycle_name)
+                    cycle_length_text = f' ({cycle_length_km:.1f} km)' if cycle_length_km is not None else ''
                     
                     # 1. Drive Cycle Speed & Altitude
                     axes_dc[0].plot(res_ecms['time'], res_ecms['velocity_kmh'], label='Rychlost [km/h]', color='black', linewidth=1.5)
                     axes_dc[0].set_ylabel('Rychlost [km/h]', fontweight='bold')
-                    axes_dc[0].set_title(f'Jízdní cyklus: {cycle_name.replace("_", " ")}', fontweight='bold')
+                    axes_dc[0].set_title(f'Jízdní cyklus: {get_cycle_display_name(cycle_name)}{cycle_length_text}', fontweight='bold')
                     axes_dc[0].grid(True, linestyle=':', alpha=0.7)
                     
                     if 'altitude_m' in res_ecms and np.any(res_ecms['altitude_m']):
@@ -140,7 +158,7 @@ def main():
                     cycle_plotted = True
 
             # --- Combined Plotting per Cycle and Capacity ---
-            plt.figure(figsize=(12, 6))
+            plt.figure(figsize=(12, 5))
             
             # Define specific colors
             colors = {'DP': 'black', 'ECMS': 'tab:blue', 'AECMS': 'tab:orange', 'PECMS': 'tab:green'}
@@ -169,11 +187,11 @@ def main():
             
             # --- 1) EF Comparison Plot (AECMS vs PECMS) ---
             if 'AECMS' in plot_data and 'PECMS' in plot_data:
-                fig_ef, ax_ef = plt.subplots(figsize=(10, 5))
+                fig_ef, ax_ef = plt.subplots(figsize=(10, 4))
                 ax_ef.plot(plot_data['AECMS']['time'], plot_data['AECMS']['s_factor'], label='Ekvivalenční faktor A-ECMS', color='tab:orange', linewidth=1.5)
                 ax_ef.plot(plot_data['PECMS']['time'], plot_data['PECMS']['s_factor'], label='Ekvivalenční faktor P-ECMS', color='tab:green', linewidth=2.0)
-                cycle_title = cycle_name.replace("_", " ").replace("EMSReferenceLoad", "").strip()
-                ax_ef.set_title(f'Porovnání ekvivalenčního faktoru (EF) | {cycle_title} | {int(cap)} kWh', fontweight='bold')
+                cycle_title = get_cycle_display_name(cycle_name)
+                ax_ef.set_title(f'Porovnání ekvivalenčního faktoru (EF) | {cycle_title}', fontweight='bold')
                 ax_ef.set_xlabel('Čas [s]', fontweight='bold')
                 ax_ef.set_ylabel('Ekvivalenční faktor (s)', fontweight='bold')
                 ax_ef.grid(True, linestyle=':', alpha=0.7)
@@ -184,8 +202,8 @@ def main():
                 plt.close(fig_ef)
                 print(f"Saved EF Comparison plot: {ef_plot_name}")
 
-            # --- 2) Engine Map Plot (ICE-only vs AECMS/PECMS) ---
-            engine_strat = 'AECMS' if 'AECMS' in plot_data else 'PECMS'
+            # --- 2) Engine Map Plot (ICE-only vs PECMS) ---
+            engine_strat = 'PECMS'
             if engine_strat in plot_data:
                 fig_map, axes_map = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
                 # Show runtime percentage overlay instead of sparse runtime points for the ICE comparison.
@@ -338,7 +356,7 @@ def main():
                         )
                         if hist.sum() > 0:
                             hist = (hist / hist.sum()) * 100.0
-                            hist_smooth = gaussian_filter(hist, sigma=0.95)
+                            hist_smooth = gaussian_filter(hist, sigma=0.85)
                             hist_visible = np.ma.masked_less_equal(hist_smooth, 0.0)
 
                             X, Y = np.meshgrid(xedges[:-1], yedges[:-1])
@@ -349,7 +367,7 @@ def main():
                                 if vmax <= vmin:
                                     vmax = vmin * 1.01
                                 if vmax > 0:
-                                    upsample = 8
+                                    upsample = 4
                                     smooth_fine = zoom(hist_smooth.T, zoom=upsample, order=3)
                                     smooth_fine = np.ma.masked_less_equal(smooth_fine, 0.0)
 
@@ -365,9 +383,9 @@ def main():
                                     bsfc_handle = ax.imshow(
                                         smooth_fine,
                                         origin='lower',
-                                        extent=[x_min, x_max, 0, y_top],
+                                        extent=[x_min, x_max, 0, y_top *1.01],
                                         cmap='Blues',
-                                        norm=PowerNorm(gamma=0.23, vmin=vmin, vmax=vmax),
+                                        norm=PowerNorm(gamma=0.27, vmin=vmin, vmax=vmax),
                                         interpolation='bicubic',
                                         alpha=1,
                                         aspect='auto',
@@ -397,7 +415,7 @@ def main():
                     ax.set_xlabel('Otáčky motoru [1/min]')
                     ax.set_xlim(x_min, x_max)
                     ax.set_ylim(0.0, y_top)
-                    ax.grid(True, linestyle=':', alpha=0.7)
+                    ax.grid(False)
                     if not show_ice_runtime_percentage_overlay:
                         ax.legend(
                             loc='upper left',
@@ -418,16 +436,18 @@ def main():
                 
                 # (b) Selected strategy map
                 ax2 = axes_map[1]
-                bsfc_handle = plot_runtime_on_bsfc(ax2, rpm_strat, t_ice_act, f'(b) {engine_strat} na mapě BSFC')
+                bsfc_handle = plot_runtime_on_bsfc(ax2, rpm_strat, t_ice_act, '(b) PECMS na mapě BSFC')
 
                 if bsfc_handle is not None:
-                    cbar_bsfc = fig_map.colorbar(bsfc_handle, ax=axes_map, pad=0.02)
+                    fig_map.subplots_adjust(right=0.88)
+                    cax_bsfc = fig_map.add_axes([0.91, 0.15, 0.015, 0.72])
+                    cbar_bsfc = fig_map.colorbar(bsfc_handle, cax=cax_bsfc)
                     if show_ice_runtime_percentage_overlay:
-                        cbar_bsfc.set_label('Time share / %')
+                        cbar_bsfc.set_label('Časový podíl běhu [%]')
                     else:
                         cbar_bsfc.set_label('Měrná spotřeba paliva [g/kWh]')
                 
-                plt.tight_layout()
+                fig_map.tight_layout(rect=[0.0, 0.0, 0.88, 1.0])
                 map_plot_name = os.path.join(out_dir, f"EngineMap_Comparison_{engine_strat}_{cycle_name}_{int(cap)}kWh.pdf")
                 plt.savefig(map_plot_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
                 plt.close(fig_map)
