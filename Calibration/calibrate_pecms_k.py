@@ -138,25 +138,25 @@ def run_calibration():
     fig, ax1 = plt.subplots(figsize=(10, 6))
     
     color = 'tab:blue'
-    ax1.set_xlabel('k_slope')
-    ax1.set_ylabel('Fuel Consumed [kg]', color=color)
-    ax1.plot(df_res['k_slope'], df_res['fuel_kg'], marker='o', color=color, label='Physical Fuel')
+    ax1.set_xlabel('Faktor směrnice k')
+    ax1.set_ylabel('Spotřeba paliva [kg]', color=color)
+    ax1.plot(df_res['k_slope'], df_res['fuel_kg'], marker='o', color=color, label='Skutečná spotřeba paliva')
     ax1.tick_params(axis='y', labelcolor=color)
     ax1.grid(True)
     
     ax2 = ax1.twinx()
     color = 'tab:red'
-    ax2.set_ylabel('Final SOC [-]', color=color)
-    ax2.plot(df_res['k_slope'], df_res['final_soc'], marker='x', linestyle='--', color=color, label='Final SOC')
+    ax2.set_ylabel('Konečný SOC [-]', color=color)
+    ax2.plot(df_res['k_slope'], df_res['final_soc'], marker='x', linestyle='--', color=color, label='Konečný SOC')
     ax2.tick_params(axis='y', labelcolor=color)
     
     # Reference Line
     ax2.axhline(0.50, color='gray', linestyle=':', alpha=0.5)
     
-    plt.title('P-ECMS Calibration: Slope Factor (k)')
+    plt.title('Kalibrace P-ECMS: faktor směrnice (k)')
     plt.tight_layout()
-    plt.savefig(os.path.join(current_dir, 'pecms_k_calibration.png'))
-    print("Plot saved to pecms_k_calibration.png")
+    plt.savefig(os.path.join(current_dir, 'pecms_k_calibration.pdf'), bbox_inches='tight', pad_inches=0.05)
+    print("Plot saved to pecms_k_calibration.pdf")
 
 if __name__ == "__main__":
     run_calibration()

@@ -81,7 +81,7 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
     
     # Fuel Contour
     cf = ax1.contourf(X, Y, Fuel, levels=20, cmap='viridis')
-    cbar = plt.colorbar(cf, ax=ax1, label='Fuel Consumed [kg]')
+    cbar = plt.colorbar(cf, ax=ax1, label='Spotřeba paliva [kg]')
     
     # Constraint Line
     if len(line_x) > 1:
@@ -95,11 +95,11 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
              pass
 
     # Optimal Marker
-    ax1.plot(opt_s_dis, opt_s_chg, 'r*', markersize=15, markeredgecolor='white', label='Optimal Point')
+    ax1.plot(opt_s_dis, opt_s_chg, 'r*', markersize=15, markeredgecolor='white', label='Optimální bod')
     
-    ax1.set_xlabel('Discharge Factor ($s_{dis}$)')
-    ax1.set_ylabel('Charge Factor ($s_{chg}$)')
-    ax1.set_title(f'Real Optimization Map\nopt: ({opt_s_dis:.2f}, {opt_s_chg:.2f}) -> {opt_fuel:.2f}kg')
+    ax1.set_xlabel('Vybíjecí faktor ($s_{dis}$)')
+    ax1.set_ylabel('Nabíjecí faktor ($s_{chg}$)')
+    ax1.set_title(f'Skutečná optimalizační mapa\nOptimální bod: ({opt_s_dis:.2f}, {opt_s_chg:.2f}) -> {opt_fuel:.2f}kg')
     ax1.legend(loc='upper right', fontsize='small')
     ax1.grid(True, alpha=0.3)
     
@@ -113,22 +113,22 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
     fuel_slice = Fuel[idx_y, :]
     soc_slice = SOC[idx_y, :]
     
-    ax2.set_xlabel('Discharge Factor ($s_{dis}$)')
-    ax2.set_ylabel('Fuel [kg]', color='tab:blue', fontweight='bold')
+    ax2.set_xlabel('Vybíjecí faktor ($s_{dis}$)')
+    ax2.set_ylabel('Spotřeba paliva [kg]', color='tab:blue', fontweight='bold')
     ax2.plot(x_slice, fuel_slice, 'b-', linewidth=2)
     ax2.tick_params(axis='y', labelcolor='tab:blue')
     ax2.grid(True, alpha=0.3)
     
     ax2r = ax2.twinx()
-    ax2r.set_ylabel('Final SOC [-]', color='tab:red', fontweight='bold')
+    ax2r.set_ylabel('Konečný SOC [-]', color='tab:red', fontweight='bold')
     ax2r.plot(x_slice, soc_slice, 'r-', linewidth=2)
     ax2r.tick_params(axis='y', labelcolor='tab:red')
     
-    ax2r.axhline(target_soc, color='k', linestyle='--', label='Target')
+    ax2r.axhline(target_soc, color='k', linestyle='--', label='Cíl')
     ax2r.axhline(0.25, color='gray', linestyle=':', alpha=0.7)
     ax2r.axhline(0.35, color='gray', linestyle=':', alpha=0.7)
     
-    ax2.set_title(f'Discharge Sensitivity\n(Fixed $s_{{chg}}$={fixed_val:.2f})')
+    ax2.set_title(f'Citlivost na vybíjecí faktor\n(Fixní $s_{{chg}}$={fixed_val:.2f})')
     
     # --- GRAPH 3: Charge Sensitivity ---
     ax3 = fig.add_subplot(133)
@@ -140,25 +140,25 @@ def plot_calibration(s_dis_ax, s_chg_ax, X, Y, Fuel, SOC, opt_point, constr_line
     fuel_slice_3 = Fuel[:, idx_x]
     soc_slice_3 = SOC[:, idx_x]
     
-    ax3.set_xlabel('Charge Factor ($s_{chg}$)')
-    ax3.set_ylabel('Fuel [kg]', color='tab:blue', fontweight='bold')
+    ax3.set_xlabel('Nabíjecí faktor ($s_{chg}$)')
+    ax3.set_ylabel('Spotřeba paliva [kg]', color='tab:blue', fontweight='bold')
     ax3.plot(y_slice, fuel_slice_3, 'b-', linewidth=2)
     ax3.tick_params(axis='y', labelcolor='tab:blue')
     ax3.grid(True, alpha=0.3)
     
     ax3r = ax3.twinx()
-    ax3r.set_ylabel('Final SOC [-]', color='tab:red', fontweight='bold')
+    ax3r.set_ylabel('Konečný SOC [-]', color='tab:red', fontweight='bold')
     ax3r.plot(y_slice, soc_slice_3, 'r-', linewidth=2)
     ax3r.tick_params(axis='y', labelcolor='tab:red')
     ax3r.axhline(target_soc, color='k', linestyle='--')
     ax3r.axhline(0.25, color='gray', linestyle=':', alpha=0.7)
     ax3r.axhline(0.35, color='gray', linestyle=':', alpha=0.7)
     
-    ax3.set_title(f'Charge Sensitivity\n(Fixed $s_{{dis}}$={fixed_val_x:.2f})')
+    ax3.set_title(f'Citlivost na nabíjecí faktor\n(Fixní $s_{{dis}}$={fixed_val_x:.2f})')
     
     plt.tight_layout()
-    plt.savefig('calibration_real_plots.png', dpi=150)
-    print("Saved calibration_real_plots.png")
+    plt.savefig('calibration_real_plots.pdf', dpi=150, bbox_inches='tight', pad_inches=0.05)
+    print("Saved calibration_real_plots.pdf")
 
 def main():
     csv_path = 'calibration_results.csv' # in current dir (Calibration)

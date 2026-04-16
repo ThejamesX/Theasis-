@@ -103,14 +103,14 @@ def calibrate_kp():
     # Graph 1: SOC Deviation
     axes[0].plot(res_df['kp'], res_df['dev'], 'b-o')
     axes[0].axhline(0, color='k', linestyle='--')
-    axes[0].set_title('Final SOC Deviation vs Kp')
-    axes[0].set_ylabel('Abs Deviation [%]')
+    axes[0].set_title('Konečná odchylka SOC vs Kp')
+    axes[0].set_ylabel('Absolutní odchylka [%]')
     axes[0].grid(True)
     
     # Graph 2: Fuel
     axes[1].plot(res_df['kp'], res_df['fuel'], 'g-o')
-    axes[1].set_title('Total Fuel vs Kp')
-    axes[1].set_ylabel('Fuel [kg]')
+    axes[1].set_title('Celková spotřeba paliva vs Kp')
+    axes[1].set_ylabel('Spotřeba paliva [kg]')
     axes[1].grid(True)
     
     # Graph 3: Trajectories
@@ -118,15 +118,15 @@ def calibrate_kp():
     axes[2].plot(time_axis, np.array(trajectories['low'][1])*100, label=f'Kp={trajectories["low"][0]:.2f}')
     axes[2].plot(time_axis, np.array(trajectories['mid'][1])*100, label=f'Kp={trajectories["mid"][0]:.2f}')
     axes[2].plot(time_axis, np.array(trajectories['high'][1])*100, label=f'Kp={trajectories["high"][0]:.2f}')
-    axes[2].axhline(target_soc*100, color='r', linestyle='--', label='Target')
-    axes[2].set_title('SOC Trajectories')
-    axes[2].set_ylabel('SOC [%]')
+    axes[2].axhline(target_soc*100, color='r', linestyle='--', label='Cíl')
+    axes[2].set_title('Trajektorie SOC')
+    axes[2].set_ylabel('Stav nabití [%]')
     axes[2].legend()
     axes[2].grid(True)
     
     plt.tight_layout()
-    plt.savefig('aecms_calibration.png')
-    print("Calibration Complete. Saved 'aecms_calibration.png'.")
+    plt.savefig('aecms_calibration.pdf', bbox_inches='tight', pad_inches=0.05)
+    print("Calibration Complete. Saved 'aecms_calibration.pdf'.")
     
 if __name__ == "__main__":
     calibrate_kp()

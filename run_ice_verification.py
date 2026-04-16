@@ -91,15 +91,15 @@ def main():
         
     # Plotting
     plt.figure(figsize=(10, 6))
-    plt.plot(times, results['fuel_rate'], label='My Fuel (g/s)', alpha=0.7)
+    plt.plot(times, results['fuel_rate'], label='Moje spotřeba paliva [g/s]', alpha=0.7)
     if 'FC-Map [g/h]' in cycle_df.columns:
-        plt.plot(times, cycle_df['FC-Map [g/h]']/3600.0, label='VECTO Fuel (g/s)', alpha=0.5, linestyle='--')
+        plt.plot(times, cycle_df['FC-Map [g/h]']/3600.0, label='VECTO spotřeba paliva [g/s]', alpha=0.5, linestyle='--')
     plt.legend()
-    plt.title("Fuel Rate Comparison (ICE Only)")
-    plt.ylabel("Fuel Rate [g/s]")
-    plt.xlabel("Time [s]")
-    plt.savefig("ice_verification.png")
-    print("Plot saved to ice_verification.png")
+    plt.title("Porovnání průtoku paliva (pouze ICE)")
+    plt.ylabel("Průtok paliva [g/s]")
+    plt.xlabel("Čas [s]")
+    plt.savefig("ice_verification.pdf", bbox_inches='tight', pad_inches=0.05)
+    print("Plot saved to ice_verification.pdf")
 
 if __name__ == "__main__":
     main()

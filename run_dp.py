@@ -60,19 +60,19 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     ax_em = fig.add_subplot(gs[1, 1])
 
     # 1) SOC trajectory
-    ax_soc.plot(res['time'], res['soc'] * 100, label='SOC [%]', color='black', linewidth=2.0)
+    ax_soc.plot(res['time'], res['soc'] * 100, label='Stav nabití [%]', color='black', linewidth=2.0)
     if 'target_soc' in res:
-        ax_soc.plot(res['time'], res['target_soc'] * 100, color='tab:red', linestyle='--', linewidth=1.5, label='Target SOC [%]')
+        ax_soc.plot(res['time'], res['target_soc'] * 100, color='tab:red', linestyle='--', linewidth=1.5, label='Cílový stav nabití [%]')
     else:
-        ax_soc.axhline(30.0, color='tab:red', linestyle='--', linewidth=1.5, label='Target SOC [%]')
+        ax_soc.axhline(30.0, color='tab:red', linestyle='--', linewidth=1.5, label='Cílový stav nabití [%]')
 
     soc_time = np.asarray(res['time'])
     if soc_time.size > 1 and np.isfinite(soc_time).all():
         ax_soc.set_xlim(float(np.min(soc_time)), float(np.max(soc_time)))
 
-    ax_soc.set_ylabel('SOC [%]')
-    ax_soc.set_xlabel('Time [s]')
-    ax_soc.set_title(f'Strategy: DP | Cap: {bat_capacity_kwh} | Fuel: {fuel_kg:.2f} kg', fontweight='bold')
+    ax_soc.set_ylabel('Stav nabití [%]')
+    ax_soc.set_xlabel('Čas [s]')
+    ax_soc.set_title(f'Strategie: DP | Kapacita baterie: {bat_capacity_kwh} | Palivo: {fuel_kg:.2f} kg', fontweight='bold')
     ax_soc.legend(loc='upper right')
     ax_soc.grid(True, linestyle=':', alpha=0.7)
 
@@ -150,7 +150,7 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
         levels_bsfc = np.concatenate([np.arange(182, 210, 2), np.arange(210, 340, 10)])
         cf_bsfc = ax_ice.tricontourf(bsfc_triang, bsfc_vals, levels=levels_bsfc, cmap='Spectral_r', extend='both', alpha=0.9, zorder=0)
         ax_ice.tricontour(bsfc_triang, bsfc_vals, levels=np.arange(190, 320, 10), colors='black', linewidths=0.35, alpha=0.35, zorder=1)
-        fig.colorbar(cf_bsfc, ax=ax_ice, label='BSFC [g/kWh]')
+        fig.colorbar(cf_bsfc, ax=ax_ice, label='Měrná spotřeba paliva [g/kWh]')
 
     if rpm_arr.size > 0 and t_eng_arr.size > 0:
         mask_ice = t_eng_arr > 0.0
@@ -165,13 +165,13 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
                 c='black',
                 alpha=0.24,
                 edgecolors='white',
-                linewidths=0.22,
+                linewidths=0.18,
                 zorder=4,
-                label='Runtime points',
+                label='Provozní body',
             )
 
     if max_rpm.size > 0:
-        ax_ice.plot(max_rpm, max_tq, 'k-', linewidth=3.0, label='Max Torque Curve', zorder=5)
+        ax_ice.plot(max_rpm, max_tq, 'k-', linewidth=3.0, label='Křivka max. točivého momentu', zorder=5)
 
     x_limit_data = []
     if max_rpm.size > 0:
@@ -199,9 +199,9 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
             y_top_candidates.append(float(np.nanmax(t_eng_arr[mask_ice]) * 1.10))
     ice_y_top = max(400.0, *y_top_candidates) if y_top_candidates else 3000.0
 
-    ax_ice.set_title('ICE Load Point Map', fontweight='bold')
-    ax_ice.set_xlabel('Engine speed [1/min]')
-    ax_ice.set_ylabel('Engine torque [Nm]')
+    ax_ice.set_title('Mapa provozních bodů spalovacího motoru', fontweight='bold')
+    ax_ice.set_xlabel('Otáčky motoru [1/min]')
+    ax_ice.set_ylabel('Točivý moment motoru [Nm]')
     ax_ice.set_xlim(x_min, x_max)
     ax_ice.set_ylim(0.0, ice_y_top)
     ax_ice.grid(True, linestyle=':', alpha=0.7)
@@ -280,7 +280,7 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
         levels_eff = np.arange(60, 100, 2)
         cf_eff = ax_em.tricontourf(em_eff_triang, em_eff_vals, levels=levels_eff, cmap='RdYlGn', extend='both', alpha=0.85, zorder=0)
         ax_em.tricontour(em_eff_triang, em_eff_vals, levels=[65, 70, 75, 80, 85, 90, 92, 95], colors='black', linewidths=0.35, alpha=0.35, zorder=1)
-        fig.colorbar(cf_eff, ax=ax_em, label='Efficiency [%]')
+        fig.colorbar(cf_eff, ax=ax_em, label='Účinnost [%]')
 
     if rpm_arr.size > 0 and t_mot_arr.size > 0:
         mask_em = np.abs(t_mot_arr) > 0.5
@@ -295,18 +295,18 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
                 c='black',
                 alpha=0.22,
                 edgecolors='white',
-                linewidths=0.2,
+                linewidths=0.18,
                 zorder=3,
-                label='Runtime points',
+                label='Provozní body',
             )
 
     if em_rpm_lim.size > 0:
-        ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max Drive Torque')
-        ax_em.plot(em_rpm_lim, em_tq_drag, 'k--', linewidth=2.5, label='Max Regen Torque')
+        ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max. hnací moment')
+        ax_em.plot(em_rpm_lim, em_tq_drag, 'k--', linewidth=2.5, label='Max. rekuperační moment')
 
-    ax_em.set_title('E-Motor Load Point Map', fontweight='bold')
-    ax_em.set_xlabel('Motor speed [1/min]')
-    ax_em.set_ylabel('Motor torque [Nm]')
+    ax_em.set_title('Mapa provozních bodů elektromotoru', fontweight='bold')
+    ax_em.set_xlabel('Otáčky elektromotoru [1/min]')
+    ax_em.set_ylabel('Točivý moment elektromotoru [Nm]')
     ax_em.axhline(0, color='gray', linewidth=1)
 
     # Center EM map viewport around active data.
@@ -371,9 +371,9 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     plt.tight_layout()
     out_dir = os.path.join(base_dir, 'output')
     os.makedirs(out_dir, exist_ok=True)
-    plot_filename = os.path.join(out_dir, f"{output_prefix}.png")
+    plot_filename = os.path.join(out_dir, f"{output_prefix}.pdf")
     
-    plt.savefig(plot_filename, dpi=300)
+    plt.savefig(plot_filename, dpi=300, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
     
     return fuel_kg, res

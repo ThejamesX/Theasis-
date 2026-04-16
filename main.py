@@ -226,14 +226,14 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     ax_em = fig.add_subplot(gs[1, 1])
 
     # 1) SOC trajectory (reference line kept)
-    ax_soc.plot(results['time'], np.array(results['soc']) * 100, label='SOC [%]', color='black', linewidth=2.0)
-    ax_soc.plot(results['time'], np.array(results['soc_target']) * 100, label='Target SOC [%]', color='tab:red', linestyle='--', linewidth=1.5)
+    ax_soc.plot(results['time'], np.array(results['soc']) * 100, label='Stav nabití [%]', color='black', linewidth=2.0)
+    ax_soc.plot(results['time'], np.array(results['soc_target']) * 100, label='Cílový stav nabití [%]', color='tab:red', linestyle='--', linewidth=1.5)
     soc_time = np.asarray(results['time'])
     if soc_time.size > 1 and np.isfinite(soc_time).all():
         ax_soc.set_xlim(float(np.min(soc_time)), float(np.max(soc_time)))
-    ax_soc.set_ylabel('SOC [%]')
-    ax_soc.set_xlabel('Time [s]')
-    ax_soc.set_title(f'Strategy: {STRATEGY} | Cap: {bat_capacity_kwh} | Fuel: {total_fuel_g/1000:.2f} kg', fontweight='bold')
+    ax_soc.set_ylabel('Stav nabití [%]')
+    ax_soc.set_xlabel('Čas [s]')
+    ax_soc.set_title(f'Strategie: {STRATEGY} | Kapacita baterie: {bat_capacity_kwh} | Palivo: {total_fuel_g/1000:.2f} kg', fontweight='bold')
     ax_soc.legend(loc='upper right')
     ax_soc.grid(True, linestyle=':', alpha=0.7)
 
@@ -343,7 +343,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
             alpha=0.35,
             zorder=1,
         )
-        fig.colorbar(cf_bsfc, ax=ax_ice, label='BSFC [g/kWh]')
+        fig.colorbar(cf_bsfc, ax=ax_ice, label='Měrná spotřeba paliva [g/kWh]')
 
     if rpm_ice_map.size > 0:
         y_max_ice = float(max_tq.max() * 1.05) if max_tq.size > 0 else float(max(200.0, np.max(t_ice_map) * 1.05))
@@ -400,11 +400,11 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
             edgecolors='white',
             linewidths=0.15,
             zorder=4,
-            label='Runtime points',
+            label='Provozní body',
         )
 
     if max_rpm.size > 0:
-        ax_ice.plot(max_rpm, max_tq, 'k-', linewidth=3.0, label='Max Torque Curve', zorder=5)
+        ax_ice.plot(max_rpm, max_tq, 'k-', linewidth=3.0, label='Křivka max. točivého momentu', zorder=5)
 
     # Use strict data min/max limits on x-axis (no extra padding).
     x_limit_data = []
@@ -429,9 +429,9 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         y_top_candidates.append(float(np.nanmax(t_ice_map) * 1.10))
     ice_ylim_top = max(400.0, *y_top_candidates) if y_top_candidates else 3000.0
 
-    ax_ice.set_title('ICE Load Point Map', fontweight='bold')
-    ax_ice.set_xlabel('Engine speed [1/min]')
-    ax_ice.set_ylabel('Engine torque [Nm]')
+    ax_ice.set_title('Mapa provozních bodů spalovacího motoru', fontweight='bold')
+    ax_ice.set_xlabel('Otáčky motoru [1/min]')
+    ax_ice.set_ylabel('Točivý moment motoru [Nm]')
     ax_ice.set_xlim(x_min, x_max)
     ax_ice.set_ylim(0.0, ice_ylim_top)
     ax_ice.grid(True, linestyle=':', alpha=0.7)
@@ -553,7 +553,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
             alpha=0.35,
             zorder=1,
         )
-        fig.colorbar(cf_eff, ax=ax_em, label='Efficiency [%]')
+        fig.colorbar(cf_eff, ax=ax_em, label='Účinnost [%]')
 
     if rpm_em_map.size > 0:
         # Point-based runtime view for E-Motor map (same idea as ICE points).
@@ -567,7 +567,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
             edgecolors='white',
             linewidths=0.2,
             zorder=3,
-            label='Runtime points',
+            label='Provozní body',
         )
 
         # Intentionally kept (commented) so runtime-percentage overlay can be re-enabled later.
@@ -587,12 +587,12 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         # fig.colorbar(cf_em, ax=ax_em, label='Time share / %')
 
     if em_rpm_lim.size > 0:
-        ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max Drive Torque')
-        ax_em.plot(em_rpm_lim, em_tq_drag, 'k--', linewidth=2.5, label='Max Regen Torque')
+        ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max. hnací moment')
+        ax_em.plot(em_rpm_lim, em_tq_drag, 'k--', linewidth=2.5, label='Max. rekuperační moment')
 
-    ax_em.set_title('E-Motor Load Point Map', fontweight='bold')
-    ax_em.set_xlabel('Motor speed [1/min]')
-    ax_em.set_ylabel('Motor torque [Nm]')
+    ax_em.set_title('Mapa provozních bodů elektromotoru', fontweight='bold')
+    ax_em.set_xlabel('Otáčky elektromotoru [1/min]')
+    ax_em.set_ylabel('Točivý moment elektromotoru [Nm]')
     ax_em.axhline(0, color='gray', linewidth=1)
 
     # Center the EM map viewport around active data while keeping practical bounds.
@@ -663,9 +663,9 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     plt.tight_layout()
     out_dir = os.path.join(base_dir, 'output')
     os.makedirs(out_dir, exist_ok=True)
-    plot_filename = os.path.join(out_dir, f"{output_prefix}.png")
+    plot_filename = os.path.join(out_dir, f"{output_prefix}.pdf")
     
-    plt.savefig(plot_filename, dpi=300)
+    plt.savefig(plot_filename, dpi=300, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig) # Close to release memory
     
     fuel_kg = total_fuel_g / 1000.0

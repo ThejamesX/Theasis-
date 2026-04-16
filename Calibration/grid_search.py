@@ -176,14 +176,14 @@ def main():
     
     surf = ax.plot_surface(X, Y, Z, cmap='viridis', edgecolor='none', alpha=0.9)
     
-    ax.set_xlabel('EF Discharge (Penalty)')
-    ax.set_ylabel('EF Charge (Reward/Cost)')
-    ax.set_zlabel('Fuel Consumption [kg]')
-    ax.set_title('ECMS Calibration (High Res 25x25)')
+    ax.set_xlabel('EF vybíjení (penalizace)')
+    ax.set_ylabel('EF nabíjení (odměna/náklad)')
+    ax.set_zlabel('Spotřeba paliva [kg]')
+    ax.set_title('Kalibrace ECMS (vysoké rozlišení 25×25)')
     
-    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5, label='Fuel [kg]')
-    plt.savefig('calibration_map_3d.png')
-    print("Saved calibration_map_3d.png")
+    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5, label='Spotřeba paliva [kg]')
+    plt.savefig('calibration_map_3d.pdf', bbox_inches='tight', pad_inches=0.05)
+    print("Saved calibration_map_3d.pdf")
 
 if __name__ == "__main__":
     main()

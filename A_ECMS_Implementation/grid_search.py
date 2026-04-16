@@ -117,12 +117,12 @@ def grid_search_aecms():
     plt.figure(figsize=(10, 8))
     plt.imshow(pivot, cmap='viridis_r', interpolation='nearest', origin='lower',
                extent=[kp_chg_vals.min(), kp_chg_vals.max(), kp_dis_vals.min(), kp_dis_vals.max()])
-    plt.colorbar(label='Fuel [kg]')
-    plt.xlabel('Kp Charge')
-    plt.ylabel('Kp Discharge')
-    plt.title('A-ECMS Fuel Consumption Grid Search')
-    plt.savefig('aecms_grid_heatmap.png')
-    print("Saved heatmap to aecms_grid_heatmap.png")
+    plt.colorbar(label='Spotřeba paliva [kg]')
+    plt.xlabel('Kp nabíjení')
+    plt.ylabel('Kp vybíjení')
+    plt.title('Mřížkové vyhledávání spotřeby paliva A-ECMS')
+    plt.savefig('aecms_grid_heatmap.pdf', bbox_inches='tight', pad_inches=0.05)
+    print("Saved heatmap to aecms_grid_heatmap.pdf")
     
     # 5. 3D Surface Plot (Mesh Grid)
     fig = plt.figure(figsize=(12, 10))
@@ -137,15 +137,15 @@ def grid_search_aecms():
     ax.view_init(elev=30, azim=135)
     
     # Labels
-    ax.set_xlabel('Kp Charge')
-    ax.set_ylabel('Kp Discharge')
-    ax.set_zlabel('Fuel Consumed [kg]')
-    ax.set_title(f'A-ECMS Fuel Optimization Landscape\nBest: {best["fuel"]:.4f} kg')
+    ax.set_xlabel('Kp nabíjení')
+    ax.set_ylabel('Kp vybíjení')
+    ax.set_zlabel('Spotřeba paliva [kg]')
+    ax.set_title(f'Prostor optimalizace spotřeby paliva A-ECMS\nNejlepší: {best["fuel"]:.4f} kg')
     
-    fig.colorbar(surf, shrink=0.5, aspect=5, label='Fuel [kg]')
+    fig.colorbar(surf, shrink=0.5, aspect=5, label='Spotřeba paliva [kg]')
     
-    plt.savefig('aecms_3d_surface.png')
-    print("Saved 3D surface plot to aecms_3d_surface.png")
+    plt.savefig('aecms_3d_surface.pdf', bbox_inches='tight', pad_inches=0.05)
+    print("Saved 3D surface plot to aecms_3d_surface.pdf")
 
 if __name__ == "__main__":
     grid_search_aecms()

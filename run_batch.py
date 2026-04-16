@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.tri as mtri
 from matplotlib.colors import PowerNorm
 from scipy.interpolate import interp1d
+from scipy.ndimage import zoom
 from main import run_ecms_simulation
 from run_dp import run_dp_simulation
 
@@ -33,7 +34,7 @@ def main():
     plot_standalone_em_maps = False
     
     # Note: main.py expects 'A-ECMS' instead of 'AECMS'
-    strategies_ecms = ['ECMS', 'AECMS', 'PECMS'] #'ECMS', 'AECMS', 'PECMS'
+    strategies_ecms = ['AECMS'] #'ECMS', 'AECMS', 'PECMS'
     
     results = []
     out_dir = os.path.join(base_dir, 'output')
@@ -113,27 +114,27 @@ def main():
                     fig_dc, axes_dc = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
                     
                     # 1. Drive Cycle Speed & Altitude
-                    axes_dc[0].plot(res_ecms['time'], res_ecms['velocity_kmh'], label='Speed [km/h]', color='black', linewidth=1.5)
-                    axes_dc[0].set_ylabel('Speed [km/h]', fontweight='bold')
-                    axes_dc[0].set_title(f'Drive Cycle: {cycle_name.replace("_", " ")}', fontweight='bold')
+                    axes_dc[0].plot(res_ecms['time'], res_ecms['velocity_kmh'], label='Rychlost [km/h]', color='black', linewidth=1.5)
+                    axes_dc[0].set_ylabel('Rychlost [km/h]', fontweight='bold')
+                    axes_dc[0].set_title(f'Jízdní cyklus: {cycle_name.replace("_", " ")}', fontweight='bold')
                     axes_dc[0].grid(True, linestyle=':', alpha=0.7)
                     
                     if 'altitude_m' in res_ecms and np.any(res_ecms['altitude_m']):
                         ax0_alt = axes_dc[0].twinx()
-                        ax0_alt.plot(res_ecms['time'], res_ecms['altitude_m'], label='Altitude [m]', color='gray', alpha=0.6, linestyle='--')
-                        ax0_alt.set_ylabel('Altitude [m]', color='gray', fontweight='bold')
+                        ax0_alt.plot(res_ecms['time'], res_ecms['altitude_m'], label='Nadmořská výška [m]', color='gray', alpha=0.6, linestyle='--')
+                        ax0_alt.set_ylabel('Nadmořská výška [m]', color='gray', fontweight='bold')
                         
                     # 2. Torque Request
                     if 't_req' in res_ecms:
-                        axes_dc[1].plot(res_ecms['time'], res_ecms['t_req'], label='Vehicle Required Torque [Nm]', color='tab:blue', linewidth=1)
-                        axes_dc[1].set_ylabel('Required Torque [Nm]', fontweight='bold')
-                        axes_dc[1].set_xlabel('Time [s]', fontweight='bold')
+                        axes_dc[1].plot(res_ecms['time'], res_ecms['t_req'], label='Požadovaný točivý moment vozidla [Nm]', color='tab:blue', linewidth=1)
+                        axes_dc[1].set_ylabel('Požadovaný točivý moment [Nm]', fontweight='bold')
+                        axes_dc[1].set_xlabel('Čas [s]', fontweight='bold')
                         axes_dc[1].grid(True, linestyle=':', alpha=0.7)
                         axes_dc[1].legend(loc='upper right')
                         
                     plt.tight_layout()
-                    cycle_plot_name = os.path.join(out_dir, f"DriveCycle_Torque_{cycle_name}.png")
-                    plt.savefig(cycle_plot_name, dpi=300)
+                    cycle_plot_name = os.path.join(out_dir, f"DriveCycle_Torque_{cycle_name}.pdf")
+                    plt.savefig(cycle_plot_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
                     plt.close(fig_dc)
                     print(f"Saved Drive Cycle plot: {cycle_plot_name}")
                     cycle_plotted = True
@@ -147,47 +148,48 @@ def main():
             # Plot each strategy
             for p_strat, data in plot_data.items():
                 if p_strat != 'Target':
-                    plt.plot(data['time'], data['soc'], label=f"{p_strat} (Fuel: {data['fuel']:.2f} kg)", 
+                    plt.plot(data['time'], data['soc'], label=f"{p_strat} (Palivo: {data['fuel']:.2f} kg)", 
                              color=colors.get(p_strat, 'gray'), linewidth=2.5 if p_strat == 'DP' else 1.5, alpha=0.9 if p_strat == 'DP' else 0.8)
             
             # Plot reference Target line
             if 'Target' in plot_data:
-                plt.plot(plot_data['Target']['time'], plot_data['Target']['soc'], color='black', linestyle='--', linewidth=2, alpha=0.8, label='Target Reference')
+                plt.plot(plot_data['Target']['time'], plot_data['Target']['soc'], color='black', linestyle='--', linewidth=2, alpha=0.8, label='Referenční cíl')
             
-            plt.title(f'SOC Trajectories Comparison | {cycle_name.replace("_", " ")} | Capacity: {cap} kWh', fontweight='bold')
-            plt.xlabel('Time [s]', fontweight='bold')
-            plt.ylabel('State of Charge (SOC) [%]', fontweight='bold')
+            plt.title(f'Porovnání trajektorií SOC | {cycle_name.replace("_", " ")} | Kapacita baterie: {cap} kWh', fontweight='bold')
+            plt.xlabel('Čas [s]', fontweight='bold')
+            plt.ylabel('Stav nabití (SOC) [%]', fontweight='bold')
             plt.grid(True, linestyle=':', alpha=0.7)
             plt.legend(loc='upper right')
             plt.tight_layout()
             
-            combined_plot_name = os.path.join(out_dir, f"Combined_SOC_{cycle_name}_{int(cap)}kWh.png")
-            plt.savefig(combined_plot_name, dpi=300)
+            combined_plot_name = os.path.join(out_dir, f"Combined_SOC_{cycle_name}_{int(cap)}kWh.pdf")
+            plt.savefig(combined_plot_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
             plt.close()
             print(f"Saved combined plot: {combined_plot_name}")
             
             # --- 1) EF Comparison Plot (AECMS vs PECMS) ---
             if 'AECMS' in plot_data and 'PECMS' in plot_data:
                 fig_ef, ax_ef = plt.subplots(figsize=(10, 5))
-                ax_ef.plot(plot_data['AECMS']['time'], plot_data['AECMS']['s_factor'], label='A-ECMS EF', color='tab:orange', linewidth=1.5)
-                ax_ef.plot(plot_data['PECMS']['time'], plot_data['PECMS']['s_factor'], label='P-ECMS EF', color='tab:green', linewidth=2.0)
-                ax_ef.set_title(f'Equivalence Factor (EF) Comparison | {cycle_name.replace("_", " ")} | {int(cap)} kWh', fontweight='bold')
-                ax_ef.set_xlabel('Time [s]', fontweight='bold')
-                ax_ef.set_ylabel('Equivalence Factor (s)', fontweight='bold')
+                ax_ef.plot(plot_data['AECMS']['time'], plot_data['AECMS']['s_factor'], label='Ekvivalenční faktor A-ECMS', color='tab:orange', linewidth=1.5)
+                ax_ef.plot(plot_data['PECMS']['time'], plot_data['PECMS']['s_factor'], label='Ekvivalenční faktor P-ECMS', color='tab:green', linewidth=2.0)
+                cycle_title = cycle_name.replace("_", " ").replace("EMSReferenceLoad", "").strip()
+                ax_ef.set_title(f'Porovnání ekvivalenčního faktoru (EF) | {cycle_title} | {int(cap)} kWh', fontweight='bold')
+                ax_ef.set_xlabel('Čas [s]', fontweight='bold')
+                ax_ef.set_ylabel('Ekvivalenční faktor (s)', fontweight='bold')
                 ax_ef.grid(True, linestyle=':', alpha=0.7)
                 ax_ef.legend(loc='upper right')
                 plt.tight_layout()
-                ef_plot_name = os.path.join(out_dir, f"EF_Comparison_{cycle_name}_{int(cap)}kWh.png")
-                plt.savefig(ef_plot_name, dpi=300)
+                ef_plot_name = os.path.join(out_dir, f"EF_Comparison_{cycle_name}_{int(cap)}kWh.pdf")
+                plt.savefig(ef_plot_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
                 plt.close(fig_ef)
                 print(f"Saved EF Comparison plot: {ef_plot_name}")
 
-            # --- 2) Engine Map Plot (ICE-only vs PECMS) ---
-            engine_strat = 'PECMS'
+            # --- 2) Engine Map Plot (ICE-only vs AECMS/PECMS) ---
+            engine_strat = 'AECMS' if 'AECMS' in plot_data else 'PECMS'
             if engine_strat in plot_data:
                 fig_map, axes_map = plt.subplots(1, 2, figsize=(14, 6), sharey=True)
-                # Keep percentage overlay code available but show point-only runtime by default.
-                show_ice_runtime_percentage_overlay = False
+                # Show runtime percentage overlay instead of sparse runtime points for the ICE comparison.
+                show_ice_runtime_percentage_overlay = True
                 
                 # Fetch BSFC data and maximum torque curve
                 try:
@@ -283,32 +285,48 @@ def main():
                 # Setup grids for smooth density contour
                 bins = 50
 
-                y_max = max_tq.max() * 1.05 if len(max_tq) > 0 else 3000.0
+                x_limit_data = []
+                if len(max_rpm) > 0:
+                    x_limit_data.append(np.asarray(max_rpm))
+                if len(rpm_ice_only) > 0:
+                    x_limit_data.append(np.asarray(rpm_ice_only))
+                if len(rpm_strat) > 0:
+                    x_limit_data.append(np.asarray(rpm_strat))
+
+                if x_limit_data:
+                    x_all = np.concatenate(x_limit_data)
+                    x_min = float(np.nanmin(x_all))
+                    x_max = float(np.nanmax(x_all))
+                    if not np.isfinite(x_min) or not np.isfinite(x_max) or x_max <= x_min:
+                        x_min, x_max = 0.0, 2500.0
+                else:
+                    x_min, x_max = 0.0, 2500.0
+
+                y_top_candidates = []
+                if len(max_tq) > 0:
+                    y_top_candidates.append(float(np.nanmax(max_tq) * 1.05))
+                if len(t_ice_only) > 0:
+                    y_top_candidates.append(float(np.nanmax(t_ice_only) * 1.10))
+                if len(t_ice_act) > 0:
+                    y_top_candidates.append(float(np.nanmax(t_ice_act) * 1.10))
+                y_top = max(400.0, *y_top_candidates) if y_top_candidates else 3000.0
 
                 def plot_runtime_on_bsfc(ax, rpm_points, tq_points, title):
                     bsfc_handle = None
 
-                    # 1) BSFC background
+                    # 1) BSFC contour lines (monochrome only)
                     if triang is not None and bsfc is not None and len(bsfc) > 0:
                         levels_bsfc = np.concatenate([np.arange(182, 210, 2), np.arange(210, 340, 10)])
-                        bsfc_handle = ax.tricontourf(
+                        cs_bsfc = ax.tricontour(
                             triang,
                             bsfc,
                             levels=levels_bsfc,
-                            cmap='Spectral_r',
-                            extend='both',
-                            alpha=0.9,
-                            zorder=0,
-                        )
-                        ax.tricontour(
-                            triang,
-                            bsfc,
-                            levels=np.arange(190, 320, 10),
-                            colors='black',
-                            linewidths=0.35,
+                            colors='0.25',
+                            linewidths=0.4,
                             alpha=0.35,
-                            zorder=1,
+                            zorder=4,
                         )
+                        ax.clabel(cs_bsfc, inline=True, fontsize=7, fmt='%d', colors='0.25')
 
                     # 2) Runtime density + load points overlay
                     if len(rpm_points) > 0:
@@ -316,115 +334,102 @@ def main():
                             rpm_points,
                             tq_points,
                             bins=bins,
-                            range=[[400, 2500], [0, y_max]],
+                            range=[[x_min, x_max], [0, y_top]],
                         )
                         if hist.sum() > 0:
                             hist = (hist / hist.sum()) * 100.0
-                            hist_smooth = gaussian_filter(hist, sigma=1.0)
-                            hist_smooth[hist_smooth < 0.005] = np.nan
+                            hist_smooth = gaussian_filter(hist, sigma=0.95)
+                            hist_visible = np.ma.masked_less_equal(hist_smooth, 0.0)
 
                             X, Y = np.meshgrid(xedges[:-1], yedges[:-1])
-                            finite = np.isfinite(hist_smooth)
-                            if show_ice_runtime_percentage_overlay and np.any(finite):
-                                vmax = float(np.nanmax(hist_smooth))
-                                levels_occ = np.array([0.01, 0.02, 0.05, 0.1, 0.2, 0.4, 0.8, 1.5, 3.0])
-                                levels_occ = levels_occ[levels_occ <= vmax]
-                                if levels_occ.size > 0 and vmax > 0:
-                                    ax.contourf(
-                                        X,
-                                        Y,
-                                        hist_smooth.T,
-                                        levels=np.linspace(0.0, vmax, 18),
+                            if show_ice_runtime_percentage_overlay and hist_visible.count() > 0:
+                                positive_values = hist_smooth[hist_smooth > 0.0]
+                                vmin = max(float(np.percentile(positive_values, 1)), 0.001)
+                                vmax = float(np.nanpercentile(positive_values, 99.5))
+                                if vmax <= vmin:
+                                    vmax = vmin * 1.01
+                                if vmax > 0:
+                                    upsample = 8
+                                    smooth_fine = zoom(hist_smooth.T, zoom=upsample, order=3)
+                                    smooth_fine = np.ma.masked_less_equal(smooth_fine, 0.0)
+
+                                    x_fine = np.linspace(x_min, x_max, smooth_fine.shape[1])
+                                    y_fine = np.linspace(0.0, y_top, smooth_fine.shape[0])
+
+                                    if len(max_rpm) > 1 and len(max_tq) > 1:
+                                        max_tq_interp = np.interp(x_fine, max_rpm, max_tq, left=np.nan, right=np.nan)
+                                        envelope_mask = y_fine[:, None] > max_tq_interp[None, :]
+                                        envelope_mask |= ~np.isfinite(max_tq_interp)[None, :]
+                                        smooth_fine = np.ma.masked_array(smooth_fine, mask=np.ma.getmaskarray(smooth_fine) | envelope_mask)
+
+                                    bsfc_handle = ax.imshow(
+                                        smooth_fine,
+                                        origin='lower',
+                                        extent=[x_min, x_max, 0, y_top],
                                         cmap='Blues',
-                                        norm=PowerNorm(gamma=0.45, vmin=0.0, vmax=vmax),
-                                        alpha=0.28,
-                                        zorder=2,
+                                        norm=PowerNorm(gamma=0.23, vmin=vmin, vmax=vmax),
+                                        interpolation='bicubic',
+                                        alpha=1,
+                                        aspect='auto',
+                                        zorder=1,
                                     )
-                                    cs_occ = ax.contour(
-                                        X,
-                                        Y,
-                                        hist_smooth.T,
-                                        levels=levels_occ,
-                                        colors='#0b4fa2',
-                                        linewidths=1.0,
-                                        alpha=0.9,
-                                        zorder=3,
-                                    )
-                                    ax.clabel(cs_occ, inline=True, fontsize=7, fmt='%g%%')
+                                    
 
-                        # Sparse points make true operating traces explicit.
-                        stride = max(1, len(rpm_points) // 1400)
-                        ax.scatter(
-                            rpm_points[::stride],
-                            tq_points[::stride],
-                            s=15,
-                            c='black',
-                            alpha=0.15,
-                            edgecolors='white',
-                            linewidths=0.22,
-                            zorder=4,
-                            label='Runtime points',
-                        )
+                        if not show_ice_runtime_percentage_overlay:
+                            # Sparse points make true operating traces explicit.
+                            stride = max(1, len(rpm_points) // 1400)
+                            ax.scatter(
+                                rpm_points[::stride],
+                                tq_points[::stride],
+                                s=15,
+                                c='black',
+                                alpha=0.15,
+                                edgecolors='white',
+                                linewidths=0.18,
+                                zorder=4,
+                                label='Provozní body',
+                            )
 
                     if len(max_rpm) > 0:
-                        ax.plot(max_rpm, max_tq, 'k-', linewidth=2.8, label='Max Torque Curve', zorder=5)
-
-                    # Use strict data min/max limits on x-axis (no extra padding).
-                    x_limit_data = []
-                    if len(max_rpm) > 0:
-                        x_limit_data.append(np.asarray(max_rpm))
-                    if len(rpm_points) > 0:
-                        x_limit_data.append(np.asarray(rpm_points))
-
-                    if x_limit_data:
-                        x_all = np.concatenate(x_limit_data)
-                        x_min = float(np.nanmin(x_all))
-                        x_max = float(np.nanmax(x_all))
-                        if not np.isfinite(x_min) or not np.isfinite(x_max) or x_max <= x_min:
-                            x_min, x_max = 0.0, 2500.0
-                    else:
-                        x_min, x_max = 0.0, 2500.0
-
-                    y_top_candidates = []
-                    if len(max_tq) > 0:
-                        y_top_candidates.append(float(np.nanmax(max_tq) * 1.05))
-                    if len(tq_points) > 0:
-                        y_top_candidates.append(float(np.nanmax(tq_points) * 1.10))
-                    y_top = max(400.0, *y_top_candidates) if y_top_candidates else max(3000.0, y_max)
+                        ax.plot(max_rpm, max_tq, 'k-', linewidth=2.8, label='Křivka max. točivého momentu', zorder=5)
 
                     ax.set_title(title, fontweight='bold')
-                    ax.set_xlabel('Engine speed [1/min]')
+                    ax.set_xlabel('Otáčky motoru [1/min]')
                     ax.set_xlim(x_min, x_max)
                     ax.set_ylim(0.0, y_top)
                     ax.grid(True, linestyle=':', alpha=0.7)
-                    ax.legend(
-                        loc='upper right',
-                        fontsize=8,
-                        framealpha=0.85,
-                        borderpad=0.3,
-                        labelspacing=0.25,
-                        handlelength=1.4,
-                        markerscale=0.85,
-                    )
+                    if not show_ice_runtime_percentage_overlay:
+                        ax.legend(
+                            loc='upper left',
+                            fontsize=8,
+                            framealpha=0.85,
+                            borderpad=0.3,
+                            labelspacing=0.25,
+                            handlelength=1.4,
+                            markerscale=0.85,
+                        )
 
                     return bsfc_handle
                 
                 # (a) ICE-only Map
                 ax1 = axes_map[0]
-                bsfc_handle = plot_runtime_on_bsfc(ax1, rpm_ice_only, t_ice_only, '(a) ICE-only on BSFC map')
-                ax1.set_ylabel('Engine torque [Nm]')
+                bsfc_handle = plot_runtime_on_bsfc(ax1, rpm_ice_only, t_ice_only, '(a) Pouze ICE na mapě BSFC')
+                ax1.set_ylabel('Točivý moment motoru [Nm]')
                 
                 # (b) Selected strategy map
                 ax2 = axes_map[1]
-                bsfc_handle = plot_runtime_on_bsfc(ax2, rpm_strat, t_ice_act, f'(b) {engine_strat} on BSFC map')
+                bsfc_handle = plot_runtime_on_bsfc(ax2, rpm_strat, t_ice_act, f'(b) {engine_strat} na mapě BSFC')
 
                 if bsfc_handle is not None:
                     cbar_bsfc = fig_map.colorbar(bsfc_handle, ax=axes_map, pad=0.02)
-                    cbar_bsfc.set_label('BSFC [g/kWh]')
+                    if show_ice_runtime_percentage_overlay:
+                        cbar_bsfc.set_label('Time share / %')
+                    else:
+                        cbar_bsfc.set_label('Měrná spotřeba paliva [g/kWh]')
                 
                 plt.tight_layout()
-                map_plot_name = os.path.join(out_dir, f"EngineMap_Comparison_{engine_strat}_{cycle_name}_{int(cap)}kWh.png")
-                plt.savefig(map_plot_name, dpi=300)
+                map_plot_name = os.path.join(out_dir, f"EngineMap_Comparison_{engine_strat}_{cycle_name}_{int(cap)}kWh.pdf")
+                plt.savefig(map_plot_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
                 plt.close(fig_map)
                 print(f"Saved Engine Map Plot: {map_plot_name}")
                 
@@ -537,7 +542,7 @@ def main():
                             alpha=0.35,
                             zorder=1,
                         )
-                        fig_em.colorbar(cf_eff, ax=ax_em, label='Efficiency [%]')
+                        fig_em.colorbar(cf_eff, ax=ax_em, label='Účinnost [%]')
                     
                     # Filter points where EM is active
                     mask_em = (np.abs(t_em_act) > 0.5)
@@ -554,9 +559,9 @@ def main():
                             c='black',
                             alpha=0.22,
                             edgecolors='white',
-                            linewidths=0.2,
+                            linewidths=0.18,
                             zorder=3,
-                            label='Runtime points',
+                            label='Provozní body',
                         )
 
                         # Intentionally kept (commented) so runtime-percentage overlay can be re-enabled later.
@@ -574,12 +579,12 @@ def main():
                         # cb_em = fig_em.colorbar(cf_em, ax=ax_em, label='Time share / %')
                         
                     if len(em_rpm_lim) > 0:
-                        ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max Drive Torque')
-                        ax_em.plot(em_rpm_lim, em_tq_drag, 'k--', linewidth=2.5, label='Max Regen Torque')
+                        ax_em.plot(em_rpm_lim, em_tq_drive, 'k-', linewidth=2.5, label='Max. hnací moment')
+                        ax_em.plot(em_rpm_lim, em_tq_drag, 'k--', linewidth=2.5, label='Max. rekuperační moment')
                         
-                    ax_em.set_title(f'E-Motor Operating Map ({strat})', fontweight='bold')
-                    ax_em.set_xlabel('Motor speed [1/min]')
-                    ax_em.set_ylabel('Motor torque [Nm]')
+                    ax_em.set_title(f'Provozní mapa elektromotoru ({strat})', fontweight='bold')
+                    ax_em.set_xlabel('Otáčky elektromotoru [1/min]')
+                    ax_em.set_ylabel('Točivý moment elektromotoru [Nm]')
                     ax_em.axhline(0, color='gray', linewidth=1)
 
                     # Zoom to effective EM limits (runtime + envelope).
@@ -625,8 +630,8 @@ def main():
                     )
                     
                     plt.tight_layout()
-                    em_plot_name = os.path.join(out_dir, f"EMotorMap_{strat}_{cycle_name}_{int(cap)}kWh.png")
-                    plt.savefig(em_plot_name, dpi=300)
+                    em_plot_name = os.path.join(out_dir, f"EMotorMap_{strat}_{cycle_name}_{int(cap)}kWh.pdf")
+                    plt.savefig(em_plot_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
                     plt.close(fig_em)
                     print(f"Saved E-Motor Map Plot: {em_plot_name}")
             
