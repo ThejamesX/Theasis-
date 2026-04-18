@@ -23,7 +23,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     if cycle_file:
         vmod_path = cycle_file
     else:
-        vmod_path = os.path.join(base_dir, "Driving Cycle/Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod")
+        vmod_path = os.path.join(base_dir, "Driving Cycle/RegionalDeliveryEMSReferenceLoad.vmod")
         
     vmap_path = os.path.join(base_dir, "Engine/325kW.vmap")
     vem_path = os.path.join(base_dir, "Emotor/P2_Group5_EM.vem")
@@ -101,7 +101,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     elif STRATEGY in ['AECMS', 'A-ECMS']:
         # print("Strategy: A-ECMS (Proportional Feedback)")
         # Replace base controller with Adaptive one
-        controller = AECMS_Controller(truck, kp_dis=30, kp_chg=0.01, target_soc=target_soc)  
+        controller = AECMS_Controller(truck, kp_dis=63.475, kp_chg=3.756, target_soc=target_soc)  
      #3. P-ECMS Variants (Supervisor + Base Controller)
         # Use New PECMS Supervisor (Updated Init)
     elif STRATEGY == 'PECMS':
