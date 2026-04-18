@@ -10,6 +10,11 @@ from vecto_loader import VectoLoader
 from p2_hybrid import P2HybridTruck
 from ecms_controller import ECMS_Controller
 
+
+def _fmt3_no_round(value):
+    """Format to x.xxx using truncation (no rounding up)."""
+    return f"{np.trunc(float(value) * 1000.0) / 1000.0:.3f}"
+
 def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.0, output_prefix='ecms'):
     # 1. Paths
     # Using absolute paths as requested or safer relative if running from root
@@ -109,6 +114,9 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         
     else:
         raise ValueError(f"Unknown Strategy: {STRATEGY}")
+
+    # Only adaptive/predictive strategies carry an SOC target profile.
+    uses_target_profile = STRATEGY in ['AECMS', 'A-ECMS', 'PECMS']
     
     # Storage
     results = {
@@ -118,7 +126,6 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         'rpm_ice': cycle_df['rpm_ice'].values,
         't_req': t_req,
         'soc': [],
-        'soc_target': [], 
         't_ice': [],
         't_em': [],
         'fuel_rate': [],
@@ -126,6 +133,8 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         'cost_inst': [],
         's_factor': []
     }
+    if uses_target_profile:
+        results['soc_target'] = []
     
     soc = target_soc
     curr_target = target_soc # Initial
@@ -179,7 +188,8 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
                 controller.s_chg = opt_s * ratio # maintain ratio
         else:
             # ECMS / A-ECMS
-            curr_target = curr_lin_target # Update reference target for plotting
+            if uses_target_profile:
+                curr_target = curr_lin_target # Update reference target for plotting
             
         # Logging print (reduced)
         # if i % 5000 == 0:
@@ -190,7 +200,8 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
         
         # Store s and target
         results['s_factor'].append(controller.s_dis)
-        results['soc_target'].append(curr_target)
+        if uses_target_profile:
+            results['soc_target'].append(curr_target)
         
         # Update SOC strictly (Eq 13)
         v_oc = truck.ocv_curve(soc * 100.0).item()
@@ -219,21 +230,23 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     # print("Simulation Complete.")
     # --- Plotting ---
     plt.rcParams.update({'font.size': 12, 'axes.labelsize': 12, 'legend.fontsize': 11})
-    fig = plt.figure(figsize=(14, 8))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.2, 1.0], hspace=0.35, wspace=0.25)
+    fig = plt.figure(figsize=(14, 9.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.35], hspace=0.32, wspace=0.25)
     ax_soc = fig.add_subplot(gs[0, :])
     ax_ice = fig.add_subplot(gs[1, 0])
     ax_em = fig.add_subplot(gs[1, 1])
 
     # 1) SOC trajectory (reference line kept)
     ax_soc.plot(results['time'], np.array(results['soc']) * 100, label='Stav nabití [%]', color='black', linewidth=2.0)
-    ax_soc.plot(results['time'], np.array(results['soc_target']) * 100, label='Cílový stav nabití [%]', color='tab:red', linestyle='--', linewidth=1.5)
+    if 'soc_target' in results and len(results['soc_target']) == len(results['time']):
+        ax_soc.plot(results['time'], np.array(results['soc_target']) * 100, label='Cílový stav nabití [%]', color='tab:red', linestyle='--', linewidth=1.5)
     soc_time = np.asarray(results['time'])
     if soc_time.size > 1 and np.isfinite(soc_time).all():
         ax_soc.set_xlim(float(np.min(soc_time)), float(np.max(soc_time)))
     ax_soc.set_ylabel('Stav nabití [%]')
     ax_soc.set_xlabel('Čas [s]')
-    ax_soc.set_title(f'Strategie: {STRATEGY} | Kapacita baterie: {bat_capacity_kwh} kWh | Palivo: {total_fuel_g/1000:.2f} kg', fontweight='bold')
+    fuel_title_str = _fmt3_no_round(total_fuel_g / 1000.0)
+    ax_soc.set_title(f'Strategie: {STRATEGY} | Kapacita baterie: {bat_capacity_kwh} kWh | Palivo: {fuel_title_str} kg', fontweight='bold')
     ax_soc.legend(loc='upper right')
     ax_soc.grid(True, linestyle=':', alpha=0.7)
 
@@ -714,7 +727,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     plt.close(fig) # Close to release memory
     
     fuel_kg = total_fuel_g / 1000.0
-    print(f"Saved {plot_filename} | Fuel: {fuel_kg:.3f} kg")
+    print(f"Saved {plot_filename} | Fuel: {_fmt3_no_round(fuel_kg)} kg")
     
     return fuel_kg, results
 

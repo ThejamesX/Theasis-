@@ -12,13 +12,18 @@ from vecto_loader import VectoLoader
 from p2_hybrid import P2HybridTruck
 from dp_optimizer import DPOptimizer
 
+
+def _fmt3_no_round(value):
+    """Format to x.xxx using truncation (no rounding up)."""
+    return f"{np.trunc(float(value) * 1000.0) / 1000.0:.3f}"
+
 def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp'):
     base_dir = os.path.dirname(os.path.abspath(__file__))
     
     if cycle_file:
         vmod_path = cycle_file
     else:
-        vmod_path = os.path.join(base_dir, "Driving Cycle/Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod")
+        vmod_path = os.path.join(base_dir, "Driving Cycle/LongHaulEMSReferenceLoad.vmod")
         
     vmap_path = os.path.join(base_dir, "Engine/325kW.vmap")
     vem_path = os.path.join(base_dir, "Emotor/P2_Group5_EM.vem")
@@ -44,32 +49,28 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     optimizer = DPOptimizer(truck, cycle_df, soc_grid_size=400, bat_capacity_kwh=bat_capacity_kwh)
     
     # print("Solving DP (Backward Sweep)...")
-    # UPDATED SETTINGS from User Request (Target 0.51)
-    J = optimizer.solve(start_soc=0.7, target_soc=0.3)
+    # DP runs without target SOC reference; only AECMS/PECMS use SOC targets.
+    J = optimizer.solve(start_soc=0.7, target_soc=None)
     
     # print("Reconstructing Optimal Path...")
     res = optimizer.reconstruct_path(start_soc=0.7)
     
     fuel_kg = res['total_fuel_kg']
-    print(f"DP Result: {fuel_kg:.3f} kg")
+    print(f"DP Result: {_fmt3_no_round(fuel_kg)} kg")
     
     # Plotting (same 3-panel layout as strategy plots)
     plt.rcParams.update({'font.size': 12, 'axes.labelsize': 12, 'legend.fontsize': 11})
     # Enable runtime percentage overlays (heatmap view instead of sparse points)
     show_ice_runtime_percentage_overlay = True
 
-    fig = plt.figure(figsize=(14, 8))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1.2, 1.0], hspace=0.35, wspace=0.25)
+    fig = plt.figure(figsize=(14, 9.5))
+    gs = fig.add_gridspec(2, 2, height_ratios=[1.0, 1.35], hspace=0.32, wspace=0.25)
     ax_soc = fig.add_subplot(gs[0, :])
     ax_ice = fig.add_subplot(gs[1, 0])
     ax_em = fig.add_subplot(gs[1, 1])
 
     # 1) SOC trajectory
     ax_soc.plot(res['time'], res['soc'] * 100, label='Stav nabití [%]', color='black', linewidth=2.0)
-    if 'target_soc' in res:
-        ax_soc.plot(res['time'], res['target_soc'] * 100, color='tab:red', linestyle='--', linewidth=1.5, label='Cílový stav nabití [%]')
-    else:
-        ax_soc.axhline(30.0, color='tab:red', linestyle='--', linewidth=1.5, label='Cílový stav nabití [%]')
 
     soc_time = np.asarray(res['time'])
     if soc_time.size > 1 and np.isfinite(soc_time).all():
@@ -77,7 +78,8 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
 
     ax_soc.set_ylabel('Stav nabití [%]')
     ax_soc.set_xlabel('Čas [s]')
-    ax_soc.set_title(f'Strategie: DP | Kapacita baterie: {bat_capacity_kwh} kWh | Palivo: {fuel_kg:.2f} kg', fontweight='bold')
+    fuel_title_str = _fmt3_no_round(fuel_kg)
+    ax_soc.set_title(f'Strategie: DP | Kapacita baterie: {bat_capacity_kwh} kWh | Palivo: {fuel_title_str} kg', fontweight='bold')
     ax_soc.legend(loc='upper right')
     ax_soc.grid(True, linestyle=':', alpha=0.7)
 
@@ -501,8 +503,14 @@ def run_dp_simulation(cycle_file=None, bat_capacity_kwh=120.0, output_prefix='dp
     
     plt.savefig(plot_filename, dpi=300, bbox_inches='tight', pad_inches=0.05)
     plt.close(fig)
+
+    if 'rpm_ice' in cycle_df.columns and 'rpm_ice' not in res:
+        res['rpm_ice'] = cycle_df['rpm_ice'].to_numpy()
     
     return fuel_kg, res
 
 def main():
     run_dp_simulation()
+
+if __name__ == "__main__":
+    main()

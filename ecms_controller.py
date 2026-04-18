@@ -1,7 +1,7 @@
 import numpy as np
 
 class ECMS_Controller:
-    def __init__(self, vehicle_model, s_dis= 2.044, s_chg=  1.842, q_lhv=42700.0): #  s_dis= 2.0886, s_chg= 1.9950
+    def __init__(self, vehicle_model, s_dis= 1.907594936708861, s_chg=  1.649367088607595, q_lhv=42700.0): #  s_dis= 2.0886, s_chg= 1.9950
         self.veh = vehicle_model
         # Static Factors
         self.s_dis = s_dis

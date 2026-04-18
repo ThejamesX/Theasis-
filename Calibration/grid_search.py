@@ -22,13 +22,14 @@ worker_q_max = None
 worker_dt_arr = None
 worker_rpms = None
 worker_times = None
+worker_velocities = None
 
 def init_worker(engine_map, motor_map, motor_param, bat_param, bat_ocv, bat_res, cycle_path):
     """
     Initializer for worker processes. Loads the Heavy model once.
     """
     global worker_truck, worker_cycle_data, worker_t_reqs, worker_q_max
-    global worker_dt_arr, worker_rpms, worker_times
+    global worker_dt_arr, worker_rpms, worker_times, worker_velocities
     
     loader = VectoLoader()
     worker_truck = P2HybridTruck(loader)
@@ -41,17 +42,17 @@ def init_worker(engine_map, motor_map, motor_param, bat_param, bat_ocv, bat_res,
     worker_t_reqs = worker_truck.calc_backward_physics(worker_cycle_data)
     
     # Pre-calc constants
-    v_nom = worker_truck.get_ocv(0.5)
-    cap_kwh = worker_truck.bat_params.get('Capacity', 100.0) 
+    v_nom = worker_truck.get_ocv(0.7)
+    cap_kwh = worker_truck.bat_params.get('Capacity', 120.0) 
     worker_q_max = (cap_kwh * 3.6e6) / v_nom
     print(f"DEBUG WORKER: V_nom={v_nom:.2f} V, Cap={cap_kwh:.2f} kWh, Q_max={worker_q_max:.2f} As")
     
     worker_times = worker_cycle_data['time'].values
     worker_rpms = worker_cycle_data['rpm_ice'].values
+    worker_velocities = worker_cycle_data['velocity_kmh'].values
     
     # Dt
-    worker_dt_arr = np.diff(worker_times, prepend=worker_times[0])
-    worker_dt_arr[0] = 0.5
+    worker_dt_arr = worker_cycle_data['dt'].values
 
 def run_simulation_task(params):
     """
@@ -70,6 +71,7 @@ def run_simulation_task(params):
     # Access globals
     times = worker_times
     rpms = worker_rpms
+    velocities = worker_velocities
     t_reqs = worker_t_reqs
     dts = worker_dt_arr
     q_max = worker_q_max
@@ -80,10 +82,11 @@ def run_simulation_task(params):
     for i in range(n_steps):
         t_req = t_reqs[i]
         rpm = rpms[i]
+        vel = velocities[i]
         dt = dts[i]
         
         # Optimize
-        _, _, _, p_chem, fuel_gs = controller.decide_split(t_req, rpm, soc)
+        _, _, _, p_chem, fuel_gs = controller.decide_split(t_req, rpm, soc, v_kmh=vel)
         
         # Accumulate Fuel
         total_fuel_g += fuel_gs * dt
@@ -105,20 +108,23 @@ def run_simulation_task(params):
 
 def main():
     # 1. Paths (Dynamic based on workspace root)
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    base_dir = os.path.dirname(script_dir)
     engine_map = os.path.join(base_dir, 'Engine', '325kW.vmap')
     motor_map = os.path.join(base_dir, 'Emotor', 'EM_Map - kopie.vemo')
     motor_param = os.path.join(base_dir, 'Emotor', 'P2_Group5_EM.vem')
     bat_param = os.path.join(base_dir, 'Emotor', 'P2_Group5_REESS.vreess')
     bat_ocv = os.path.join(base_dir, 'Emotor', 'REESS_SOC_curve.vbatv')
     bat_res = os.path.join(base_dir, 'Emotor', 'REESS_Internal_Resistance.vbatr')
-    cycle_path = os.path.join(base_dir, 'Driving Cycle', 'Class5_Tractor_DECL_LongHaulEMSReferenceLoad.vmod')
+    cycle_path = os.path.join(base_dir, 'Driving Cycle', 'LongHaulEMSReferenceLoad.vmod')
+    results_csv = os.path.join(script_dir, 'calibration_results.csv')
+    results_pdf = os.path.join(script_dir, 'calibration_map_3d.pdf')
     
     # 2. Grid Definition
     # High Resolution as requested
-    s_min = 1.8
-    s_max = 4.0
-    steps = 10 
+    s_min = 0.1
+    s_max = 3.5
+    steps = 80 
     
     print(f"Defining Grid: {steps}x{steps} (Total {steps*steps} simulations)")
     
@@ -158,8 +164,8 @@ def main():
     
     # 3. Process Results
     df = pd.DataFrame(results, columns=['s_dis', 's_chg', 'fuel_kg', 'final_soc'])
-    df.to_csv('calibration_results.csv', index=False)
-    print("Saved calibration_results.csv")
+    df.to_csv(results_csv, index=False)
+    print(f"Saved {results_csv}")
     
     # 4. Plotting
     fig = plt.figure(figsize=(12, 10))
@@ -179,11 +185,11 @@ def main():
     ax.set_xlabel('EF vybíjení (penalizace)')
     ax.set_ylabel('EF nabíjení (odměna/náklad)')
     ax.set_zlabel('Spotřeba paliva [kg]')
-    ax.set_title('Kalibrace ECMS (vysoké rozlišení 25×25)')
+    ax.set_title('Kalibrace ECMS (vysoké rozlišení 80×80)')
     
     fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5, label='Spotřeba paliva [kg]')
-    plt.savefig('calibration_map_3d.pdf', bbox_inches='tight', pad_inches=0.05)
-    print("Saved calibration_map_3d.pdf")
+    plt.savefig(results_pdf, bbox_inches='tight', pad_inches=0.05)
+    print(f"Saved {results_pdf}")
 
 if __name__ == "__main__":
     main()

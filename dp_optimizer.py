@@ -3,7 +3,7 @@ import time
 from scipy.interpolate import RegularGridInterpolator, LinearNDInterpolator
 
 class DPOptimizer:
-    def __init__(self, truck, cycle_df, soc_grid_size=150, bat_capacity_kwh =120.0):
+    def __init__(self, truck, cycle_df, soc_grid_size=250, bat_capacity_kwh =120.0):
         self.truck = truck
         self.cycle_df = cycle_df
         
@@ -71,19 +71,26 @@ class DPOptimizer:
     def solve(self, start_soc=0.70, target_soc=0.30):
         print("Starting DP Backward Sweep (Control Discretization)...")
         start_time = time.time()
+        self._infeasible_rows_total = 0
+
+        # Persist target configuration for reconstruction/output logic.
+        self.dp_target_soc = target_soc
         
         # Grid Setup
         # SOC Grid (States)
         self.J_next = np.full(self.ns, np.inf)
         
-        # Terminal Cost: Soft Constraint
-        penalty_weight = 1e6 
-        self.J_next = penalty_weight * (self.soc_grid - target_soc)**2
+        # Terminal cost can be disabled by passing target_soc=None.
+        if target_soc is None:
+            self.J_next = np.zeros(self.ns)
+        else:
+            penalty_weight = 1e6
+            self.J_next = penalty_weight * (self.soc_grid - target_soc)**2
         
         # Control Variable Grid (T_mot)
         # We'll adapt it dynamically or use fixed grid? 
         # Fixed grid is easier for vectorization.
-        self.u_control_grid = np.linspace(-1500, 1500, 101) # T_mot candidates
+        self.u_control_grid = np.linspace(-1500, 1500, 201) # T_mot candidates
         self.nu = len(self.u_control_grid)
         
         # Storage for Optimal Control (We store the optimal T_mot index or value?)
@@ -121,17 +128,36 @@ class DPOptimizer:
 
         from scipy.interpolate import interp1d
 
+        # Add velocity array for standstill check
+        if 'velocity_kmh' in self.cycle_df.columns:
+            velocities = self.cycle_df['velocity_kmh'].values
+        else:
+            velocities = np.ones(self.N) * 10.0 # Dummy
+
         for k in range(self.N - 1, -1, -1):
             dt = self.dts[k]
             t_req = self.t_reqs[k]
             w_rpm = self.rpms[k]
+            v_kmh = velocities[k]
+            
+            # --- Apply System Limits and Standstill to Match ECMS ---
+            t_sys_min, t_sys_max = self.truck.get_system_limits(w_rpm)
+            t_req = max(t_sys_min, min(t_sys_max, t_req))
             
             # --- 1. Calculate Next SOC using ECMS Logic ---
             
             # P_elec from T_mot (Control)
             # Map (n, T) -> P_el (kW)
             # Optimize: Calc P_elec for the Control Grid once (1D array)
-            pts_mot = np.column_stack((np.full(self.nu, w_rpm), self.u_control_grid))
+            T_mot_u_eff = T_mot_u.copy()
+            t_mot_min_phys, t_mot_max_phys = self.truck.get_limits(w_rpm)
+            t_eng_min_phys, t_eng_max_phys = self.truck.get_eng_limits(w_rpm)
+            
+            if v_kmh < 0.1:
+                safe_0 = max(t_mot_min_phys, min(t_mot_max_phys, 0.0))
+                T_mot_u_eff = np.full_like(T_mot_u, safe_0)
+            
+            pts_mot = np.column_stack((np.full(self.nu, w_rpm), T_mot_u_eff.ravel()))
             P_el_1d = self.truck.em_eff_interp(pts_mot) # kW. (Nu,)
             P_el_u = P_el_1d.reshape(1, -1) # Broadcastable
             
@@ -146,8 +172,8 @@ class DPOptimizer:
             SOC_next = SOC_i + dSOC
             
             # --- 2. Calculate Fuel Cost ---
-            # T_eng = T_req - T_mot
-            T_eng_u = t_req - T_mot_u # (1, Nu)
+            # Wait until standstill constraint to define T_eng_u
+            T_eng_u = t_req - T_mot_u_eff # (1, Nu)
             
             # Fuel Map (n, T_eng) -> Fuel (1, Nu)
             # Again, depends only on Control, not SOC.
@@ -157,10 +183,11 @@ class DPOptimizer:
             pts_idle = np.column_stack((np.full(self.nu, w_rpm), np.zeros(self.nu)))
             idle_fuel_1d = self.truck.fuel_interp(pts_idle)
 
-            # If RPM > 500 (Engine ON), Fuel cannot be less than Idle
-            # (Assuming VECTO RPMs imply engine is spinning)
-            if w_rpm > 500:
-                Fuel_1d = np.maximum(Fuel_1d, idle_fuel_1d)
+            # Some map corners (especially low RPM/standstill) may return NaN fuel.
+            # Allow a conservative fallback only near zero engine torque to avoid full-step infeasibility.
+            near_zero_teng = np.abs(T_eng_u.ravel()) <= 1.0
+            idle_fuel_safe = np.where(np.isfinite(idle_fuel_1d), idle_fuel_1d, 0.0)
+            Fuel_1d = np.where(np.isnan(Fuel_1d) & near_zero_teng, idle_fuel_safe, Fuel_1d)
             
             Fuel_cost = (Fuel_1d * dt).reshape(1, -1) # (1, Nu)
             
@@ -173,7 +200,10 @@ class DPOptimizer:
             t_mot_min_phys, t_mot_max_phys = self.truck.get_limits(w_rpm)
             t_eng_min_phys, t_eng_max_phys = self.truck.get_eng_limits(w_rpm)
             
-            mask_mot_lim = (T_mot_u >= t_mot_min_phys) & (T_mot_u <= t_mot_max_phys)
+            # --- Apply Standstill constraint to Control Grid (like ECMS) ---
+            # (already applied earlier for T_mot_u_eff)
+            
+            mask_mot_lim = (T_mot_u_eff >= t_mot_min_phys) & (T_mot_u_eff <= t_mot_max_phys)
             mask_eng_lim = (T_eng_u >= t_eng_min_phys) & (T_eng_u <= t_eng_max_phys)
             mask_torque_lim = mask_mot_lim & mask_eng_lim
             
@@ -203,9 +233,23 @@ class DPOptimizer:
             Q_values = Total_Cost + J_future
             
             # Min over Control (dim 1)
-            # Use nanmin to ignore NaNs
-            min_vals = np.nanmin(Q_values, axis=1)
-            min_idxs = np.nanargmin(Q_values, axis=1)
+            finite_mask = np.isfinite(Q_values)
+            q_safe = np.where(finite_mask, Q_values, np.inf)
+            min_vals = np.min(q_safe, axis=1)
+            min_idxs = np.argmin(q_safe, axis=1)
+
+            # Robust fallback: if a state has no finite control at this step,
+            # keep DP numerically alive with a very large penalty and zero-torque control index.
+            row_has_feasible = np.any(finite_mask, axis=1)
+            if not np.all(row_has_feasible):
+                bad_rows = ~row_has_feasible
+                self._infeasible_rows_total += int(np.sum(bad_rows))
+                fallback_idx = int(np.argmin(np.abs(self.u_control_grid)))
+                stay_future = np.interp(self.soc_grid[bad_rows], self.soc_grid, self.J_next, left=np.inf, right=np.inf)
+                stay_future = np.where(np.isfinite(stay_future), stay_future, 0.0)
+                fallback_penalty = 1e6 + 10.0 * abs(t_req) * max(dt, 1e-3)
+                min_vals[bad_rows] = stay_future + fallback_penalty
+                min_idxs[bad_rows] = fallback_idx
             
             self.J_next = min_vals
             self.u_opt_idx[k, :] = min_idxs
@@ -214,6 +258,8 @@ class DPOptimizer:
                  print(f"Step {k}: Min Cost = {np.nanmin(self.J_next):.2f}")
                  
         print(f"DP Solved in {time.time()-start_time:.1f}s")
+        if self._infeasible_rows_total > 0:
+            print(f"DP Warning: Applied infeasible-row fallback {self._infeasible_rows_total} times.")
         return self.J_next
 
     def _calc_current_standard(self, u_oc, r_bat, p_elec_kw):
@@ -275,7 +321,7 @@ class DPOptimizer:
         print("Reconstructing Optimal Path...")
         
         soc_curr = start_soc
-        target_end = 0.30
+        target_end = getattr(self, 'dp_target_soc', None)
         
         time_hist = self.cycle_df['time'].values
         
@@ -284,9 +330,14 @@ class DPOptimizer:
         else:
             dist_arr = np.linspace(0, 1, self.N)
         total_dist = dist_arr[-1] if dist_arr[-1] > 0 else 1.0
+
+        if 'velocity_kmh' in self.cycle_df.columns:
+            velocities = self.cycle_df['velocity_kmh'].values
+        else:
+            velocities = np.ones(self.N) * 10.0 # Dummy
         
         soc_hist = []
-        target_soc_hist = []
+        target_soc_hist = [] if target_end is not None else None
         fuel_hist = []
         t_mot_hist = []
         t_eng_hist = []
@@ -309,6 +360,14 @@ class DPOptimizer:
             dt = self.dts[k]
             t_req = self.t_reqs[k]
             w_rpm = self.rpms[k]
+            v_kmh = velocities[k]
+
+            t_sys_min, t_sys_max = self.truck.get_system_limits(w_rpm)
+            t_req = max(t_sys_min, min(t_sys_max, t_req))
+            
+            t_mot_min_phys, t_mot_max_phys = self.truck.get_limits(w_rpm)
+            if v_kmh < 0.1:
+                t_mot = max(t_mot_min_phys, min(t_mot_max_phys, 0.0))
             
             # Physics
             val_eff = self.truck.em_eff_interp([[w_rpm, t_mot]])
@@ -348,11 +407,13 @@ class DPOptimizer:
             
             total_fuel += fuel
             
-            # Linear Reference Target
-            curr_target = start_soc - (dist_arr[k] / total_dist) * (start_soc - target_end)
+            # Optional target profile for strategies that use one.
+            if target_soc_hist is not None:
+                curr_target = start_soc - (dist_arr[k] / total_dist) * (start_soc - target_end)
             
             soc_hist.append(soc_curr)
-            target_soc_hist.append(curr_target)
+            if target_soc_hist is not None:
+                target_soc_hist.append(curr_target)
             t_mot_hist.append(t_mot)
             t_eng_hist.append(t_eng)
             fuel_hist.append(fuel)
@@ -370,11 +431,13 @@ class DPOptimizer:
         energy_batt_kwh = dSOC_total * float(self.bat_capacity_kwh)
         print(f"  SOC Drop: {dSOC_total*100:.2f}% -> {energy_batt_kwh:.2f} kWh used")
         
-        return {
+        out = {
             'time': time_hist,
             'soc': np.array(soc_hist),
-            'target_soc': np.array(target_soc_hist),
             't_mot': np.array(t_mot_hist),
             't_eng': np.array(t_eng_hist),
             'total_fuel_kg': total_fuel/1000.0
         }
+        if target_soc_hist is not None:
+            out['target_soc'] = np.array(target_soc_hist)
+        return out

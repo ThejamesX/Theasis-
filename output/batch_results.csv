@@ -1,5 +1,9 @@
 Cycle,Capacity_kWh,Strategy,Fuel_kg
-LongHaulEMSReferenceLoad,120.0,DP,27.97654669995894
+LongHaulEMSReferenceLoad,120.0,DP,27.97962205156508
+LongHaulEMSReferenceLoad,120.0,ECMS,27.9845054461914
+LongHaulEMSReferenceLoad,120.0,AECMS,28.564238254719513
 LongHaulEMSReferenceLoad,120.0,PECMS,28.217130118937376
-RegionalDeliveryEMSReferenceLoad,120.0,DP,28.348371782368652
+RegionalDeliveryEMSReferenceLoad,120.0,DP,28.382420315744213
+RegionalDeliveryEMSReferenceLoad,120.0,ECMS,28.290432287396285
+RegionalDeliveryEMSReferenceLoad,120.0,AECMS,28.722749419487485
 RegionalDeliveryEMSReferenceLoad,120.0,PECMS,28.682222080392197
