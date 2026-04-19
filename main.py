@@ -101,14 +101,14 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     elif STRATEGY in ['AECMS', 'A-ECMS']:
         # print("Strategy: A-ECMS (Proportional Feedback)")
         # Replace base controller with Adaptive one
-        controller = AECMS_Controller(truck, kp_dis=63.475, kp_chg=3.756, target_soc=target_soc)  
+        controller = AECMS_Controller(truck, kp_dis=66.949, kp_chg=15.000, target_soc=target_soc)  
      #3. P-ECMS Variants (Supervisor + Base Controller)
         # Use New PECMS Supervisor (Updated Init)
     elif STRATEGY == 'PECMS':
         # print("Strategy: P-ECMS (Constant Reference)") 
             
-        controller.s_dis = 2.3395
-        controller.s_chg = 1.7538
+        controller.s_dis = 2.5448
+        controller.s_chg = 1.9077
         predictor = NewHorizonPredictor(cycle_df, spatial_step=50.0)
         supervisor = PECMS_Supervisor(truck, controller, q_max_as, target_soc=target_soc)
         

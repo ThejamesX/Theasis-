@@ -56,7 +56,7 @@ class AECMS_Controller(ECMS_Controller):
         )
         return p_mech_watts[valid_mask], fuel_rates_gs[valid_mask]
 
-    def __init__(self, vehicle_model, kp_dis=63.475, kp_chg=3.756, target_soc=0.50):
+    def __init__(self, vehicle_model, kp_dis=65.508475, kp_chg=10.000000, target_soc=0.50):
         # Initialize parent
         super().__init__(vehicle_model)
         
@@ -78,9 +78,9 @@ class AECMS_Controller(ECMS_Controller):
         eta_marg = 1.0 / (willans_k * q_lhv)
         
         # Efficiencies
-        self.eta_mot_avg = 0.93 
+        self.eta_mot_avg = 0.91 
         self.eta_inv_avg = 0.95
-        self.eta_batt_avg = 0.98 
+        self.eta_batt_avg = 0.97
         eta_elec_path = self.eta_mot_avg * self.eta_inv_avg * self.eta_batt_avg
         
         base_factor_dim = willans_k * q_lhv

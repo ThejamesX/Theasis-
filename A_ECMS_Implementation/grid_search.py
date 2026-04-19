@@ -117,6 +117,7 @@ def grid_search_aecms(num_workers=12):
     vmod_path = next((p for p in cycle_candidates if os.path.exists(p)), None)
     if vmod_path is None:
         tried = "\n".join(cycle_candidates)
+        
         raise FileNotFoundError(f"No driving cycle file found. Tried:\n{tried}")
 
     vmap_path = os.path.join(base_dir, "Engine/325kW.vmap")
@@ -127,8 +128,8 @@ def grid_search_aecms(num_workers=12):
     vbatr_path = os.path.join(base_dir, "Emotor/REESS_Internal_Resistance.vbatr")
 
     # 2. Grid Setup
-    kp_dis_vals = np.linspace(5, 80, 60)
-    kp_chg_vals = np.linspace(0.01, 10, 25)
+    kp_dis_vals = np.linspace(5, 90, 60)
+    kp_chg_vals = np.linspace(5, 25, 25)
 
     tasks = []
     for kd in kp_dis_vals:
@@ -166,13 +167,13 @@ def grid_search_aecms(num_workers=12):
     df.to_csv('aecms_grid_results.csv', index=False)
     
     # Best Fuel with Dev < 1%
-    valid = df[df['dev'] < 0.8]
+    valid = df[df['dev'] < 1.0]
     if not valid.empty:
         best = valid.loc[valid['fuel'].idxmin()]
-        print("\n--- BEST VALID RESULT (Dev < 0.8%) ---")
+        print("\n--- BEST VALID RESULT (Dev < 1.0%) ---")
         print(best)
     else:
-        print("\nNo run satisfied deviation < 0.8%. Best overall fuel:")
+        print("\nNo run satisfied deviation < 1.0%. Best overall fuel:")
         best = df.loc[df['fuel'].idxmin()]
         print(best)
         

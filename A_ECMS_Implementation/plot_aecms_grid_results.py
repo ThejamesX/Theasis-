@@ -139,7 +139,7 @@ def _argmin_fuel_with_mask(fuel, mask):
     return np.unravel_index(np.argmin(masked_fuel), fuel.shape)
 
 
-def find_optimal_point(X, Y, fuel, dev, final_soc=None, target_soc=0.30, target_dev=0.8):
+def find_optimal_point(X, Y, fuel, dev, final_soc=None, target_soc=0.30, target_dev=1.0):
     """Find optimum prioritizing minimum fuel while enforcing end-SOC constraint."""
     from scipy.interpolate import RegularGridInterpolator
 

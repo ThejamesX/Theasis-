@@ -59,6 +59,7 @@ def main():
     out_dir = os.path.join(base_dir, 'output')
     os.makedirs(out_dir, exist_ok=True)
     
+    
     # Preconfigure matplotlib academic styling globally
     plt.rcParams.update({'font.size': 12, 'axes.labelsize': 12, 'legend.fontsize': 11})
     for cycle_path in cycles:
@@ -238,6 +239,69 @@ def main():
                 fig_soc_on.savefig(soc_plot_name_on, dpi=300, bbox_inches='tight', pad_inches=0.05)
                 plt.close(fig_soc_on)
                 print(f"Saved SOC comparison plot: {soc_plot_name_on}")
+
+            # --- 1c) Legacy combined SOC output: all available strategies ---
+            if plot_data:
+                fig_soc_comb, ax_soc_comb = plt.subplots(figsize=(12, 4.8))
+                combined_soc_strategies = [
+                    ('DP', 'black', 2.5),
+                    ('ECMS', 'tab:blue', 2.0),
+                    ('AECMS', 'tab:orange', 2.0),
+                    ('PECMS', 'tab:green', 2.0),
+                ]
+                if 'RegionalDeliveryEMSReferenceLoad' in cycle_name:
+                    combined_soc_strategies = [s for s in combined_soc_strategies if s[0] != 'ECMS']
+
+                for strat, color, lw in combined_soc_strategies:
+                    if strat not in plot_data:
+                        continue
+                    data = plot_data[strat]
+                    fuel_label = np.trunc(float(data['fuel']) * 1000.0) / 1000.0
+                    ax_soc_comb.plot(
+                        data['time'],
+                        data['soc'],
+                        label=f"{strat} (Palivo: {fuel_label:.3f} kg)",
+                        color=color,
+                        linewidth=lw,
+                    )
+
+                target_time = None
+                target_soc = None
+                for strat in ['AECMS', 'PECMS']:
+                    if strat not in plot_data:
+                        continue
+                    data = plot_data[strat]
+                    soc_target = np.array(data.get('soc_target', []))
+                    if soc_target.size == len(data['time']) and soc_target.size > 0:
+                        target_time = data['time']
+                        target_soc = soc_target
+                        break
+
+                if target_soc is not None:
+                    ax_soc_comb.plot(
+                        target_time,
+                        target_soc,
+                        linestyle='--',
+                        linewidth=1.6,
+                        color='tab:red',
+                        alpha=0.95,
+                        label='Cílový SOC',
+                    )
+
+                ax_soc_comb.set_title(
+                    f'{get_cycle_display_name(cycle_name)} | kombinované porovnání SOC | Kapacita baterie: {cap} kWh',
+                    fontweight='bold',
+                )
+                ax_soc_comb.set_xlabel('Čas [s]', fontweight='bold')
+                ax_soc_comb.set_ylabel('Stav nabití (SOC) [%]', fontweight='bold')
+                ax_soc_comb.grid(True, linestyle=':', alpha=0.7)
+                ax_soc_comb.legend(loc='upper right')
+                fig_soc_comb.tight_layout()
+
+                combined_soc_name = os.path.join(out_dir, f"Combined_SOC_{cycle_name}_{int(cap)}kWh.pdf")
+                fig_soc_comb.savefig(combined_soc_name, dpi=300, bbox_inches='tight', pad_inches=0.05)
+                plt.close(fig_soc_comb)
+                print(f"Saved combined SOC plot: {combined_soc_name}")
 
             # --- 2) Map output: 4 equal panels (DP row, ECMS row) ---
             if ('DP' in plot_data and 'ECMS' in plot_data) or ('AECMS' in plot_data and 'PECMS' in plot_data):
