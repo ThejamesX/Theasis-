@@ -23,7 +23,7 @@ class P2HybridTruck:
         self.fallback_r_int = 0.25
         
         # Physics Parameters (Typical 40t LH Truck)
-        self.M_veh = 40000.0 # [kg] (Gross Mass) or read from cycle?
+        self.M_veh = 40000.0 # [kg] (Gross Mass)?
         self.Cd = 0.6        # Check typical VECTO
         self.A_front = 10.0  # [m^2]
         self.C_roll = 0.006  # Rolling coeff

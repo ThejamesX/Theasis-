@@ -50,7 +50,7 @@ def main():
     
     params_cap = [120.0]
     plot_standalone_em_maps = False
-    export_drive_cycle_plot = False
+    export_drive_cycle_plot = True
     
     # Generate both offline and online strategy comparisons.
     strategies_ecms = ['ECMS', 'AECMS', 'PECMS']
@@ -118,6 +118,7 @@ def main():
                     't_ice': np.array(res_ecms.get('t_ice', [])),
                     't_em': np.array(res_ecms.get('t_em', [])),
                     'velocity_kmh': np.array(res_ecms.get('velocity_kmh', [])),
+                    'altitude_m': np.array(res_ecms.get('altitude_m', [])),
                     't_req': np.array(res_ecms.get('t_req', []))
                 }
                 
@@ -135,15 +136,23 @@ def main():
                     cycle_length_text = f' ({cycle_length_km:.1f} km)' if cycle_length_km is not None else ''
                     
                     # 1. Drive Cycle Speed & Altitude
-                    axes_dc[0].plot(res_ecms['time'], res_ecms['velocity_kmh'], label='Rychlost [km/h]', color='black', linewidth=1.5)
+                    axes_dc[0].plot(res_ecms['time'], res_ecms['velocity_kmh'], label='Rychlost', color='black', linewidth=1.5)
                     axes_dc[0].set_ylabel('Rychlost [km/h]', fontweight='bold')
                     axes_dc[0].set_title(f'Jízdní cyklus: {get_cycle_display_name(cycle_name)}{cycle_length_text}', fontweight='bold')
                     axes_dc[0].grid(True, linestyle=':', alpha=0.7)
                     
-                    if 'altitude_m' in res_ecms and np.any(res_ecms['altitude_m']):
+                    # Ensure altitude array exists and isn't entirely zeros/empty
+                    if 'altitude_m' in res_ecms and len(res_ecms['altitude_m']) > 0 and np.max(np.abs(res_ecms['altitude_m'])) > 0:
                         ax0_alt = axes_dc[0].twinx()
-                        ax0_alt.plot(res_ecms['time'], res_ecms['altitude_m'], label='Nadmořská výška [m]', color='gray', alpha=0.6, linestyle='--')
-                        ax0_alt.set_ylabel('Nadmořská výška [m]', color='gray', fontweight='bold')
+                        ax0_alt.plot(res_ecms['time'], res_ecms['altitude_m'], color='gray', alpha=0.6, linestyle='--')
+                        ax0_alt.set_ylabel('Výškový profil [m]', color='gray', fontweight='bold')
+                        # Přidání neviditelné čáry na hlavní osu, aby se zobrazila v legendě bez problémů s twinx
+                        axes_dc[0].plot([], [], color='gray', alpha=0.6, linestyle='--', label='Výškový profil')
+                        
+                    if 'RegionalDelivery' in cycle_name:
+                        axes_dc[0].legend(loc='lower center', bbox_to_anchor=(0.72, 0.05), framealpha=0.95)
+                    else:
+                        axes_dc[0].legend(loc='lower center', bbox_to_anchor=(0.76, 0.05), framealpha=0.95)
                         
                     # 2. Torque Request
                     if 't_req' in res_ecms:
@@ -151,7 +160,7 @@ def main():
                         axes_dc[1].set_ylabel('Požadovaný točivý moment [Nm]', fontweight='bold')
                         axes_dc[1].set_xlabel('Čas [s]', fontweight='bold')
                         axes_dc[1].grid(True, linestyle=':', alpha=0.7)
-                        axes_dc[1].legend(loc='upper right')
+                        axes_dc[1].legend(loc='upper right', framealpha=0.7)
                         
                     plt.tight_layout()
                     cycle_plot_name = os.path.join(out_dir, f"DriveCycle_Torque_{cycle_name}.pdf")
@@ -163,16 +172,18 @@ def main():
             # --- 1) SOC comparison output: offline optimization (DP vs ECMS) ---
             if 'DP' in plot_data and 'ECMS' in plot_data:
                 fig_soc, ax_soc = plt.subplots(figsize=(12, 4.8))
+                lines_soc = []
                 for strat, color, lw in [('DP', 'black', 2.5), ('ECMS', 'tab:blue', 2.0)]:
                     data = plot_data[strat]
                     fuel_label = np.trunc(float(data['fuel']) * 1000.0) / 1000.0
-                    ax_soc.plot(
+                    l, = ax_soc.plot(
                         data['time'],
                         data['soc'],
                         label=f"{strat} (Palivo: {fuel_label:.3f} kg)",
                         color=color,
                         linewidth=lw,
                     )
+                    lines_soc.append(l)
 
                 ax_soc.set_title(
                     f'{get_cycle_display_name(cycle_name)} | offline optimalizace | Kapacita baterie: {cap} kWh',
@@ -181,7 +192,22 @@ def main():
                 ax_soc.set_xlabel('Čas [s]', fontweight='bold')
                 ax_soc.set_ylabel('Stav nabití (SOC) [%]', fontweight='bold')
                 ax_soc.grid(True, linestyle=':', alpha=0.7)
-                ax_soc.legend(loc='upper right')
+                
+                has_alt = False
+                for st in plot_data:
+                    if 'altitude_m' in plot_data[st] and np.any(plot_data[st]['altitude_m']):
+                        has_alt = True
+                        ax_alt = ax_soc.twinx()
+                        l_alt, = ax_alt.plot(plot_data[st]['time'], plot_data[st]['altitude_m'], label='Výškový profil', color='gray', alpha=0.6, linestyle='--')
+                        ax_alt.set_ylabel('Výškový profil [m]', color='gray', fontweight='bold')
+                        lines_soc.append(l_alt)
+                        break
+                        
+                labels_soc = [l.get_label() for l in lines_soc]
+                if has_alt:
+                    ax_alt.legend(lines_soc, labels_soc, loc='upper right')
+                else:
+                    ax_soc.legend(lines_soc, labels_soc, loc='upper right')
                 fig_soc.tight_layout()
 
                 soc_plot_name = os.path.join(out_dir, f"SOC_Comparison_DP_ECMS_{cycle_name}_{int(cap)}kWh.pdf")
@@ -192,16 +218,18 @@ def main():
             # --- 1b) SOC comparison output: online optimization (AECMS vs PECMS) ---
             if 'AECMS' in plot_data and 'PECMS' in plot_data:
                 fig_soc_on, ax_soc_on = plt.subplots(figsize=(12, 4.8))
+                lines_soc_on = []
                 for strat, color, lw in [('AECMS', 'tab:orange', 2.0), ('PECMS', 'tab:green', 2.0)]:
                     data = plot_data[strat]
                     fuel_label = np.trunc(float(data['fuel']) * 1000.0) / 1000.0
-                    ax_soc_on.plot(
+                    l, = ax_soc_on.plot(
                         data['time'],
                         data['soc'],
                         label=f"{strat} (Palivo: {fuel_label:.3f} kg)",
                         color=color,
                         linewidth=lw,
                     )
+                    lines_soc_on.append(l)
 
                 # Shared target SOC: plot a single red reference line.
                 target_time = None
@@ -215,7 +243,7 @@ def main():
                         break
 
                 if target_soc is not None:
-                    ax_soc_on.plot(
+                    l_target, = ax_soc_on.plot(
                         target_time,
                         target_soc,
                         linestyle='--',
@@ -224,6 +252,7 @@ def main():
                         alpha=0.95,
                         label='Cílový SOC',
                     )
+                    lines_soc_on.append(l_target)
 
                 ax_soc_on.set_title(
                     f'{get_cycle_display_name(cycle_name)} | online optimalizace | Kapacita baterie: {cap} kWh',
@@ -232,7 +261,22 @@ def main():
                 ax_soc_on.set_xlabel('Čas [s]', fontweight='bold')
                 ax_soc_on.set_ylabel('Stav nabití (SOC) [%]', fontweight='bold')
                 ax_soc_on.grid(True, linestyle=':', alpha=0.7)
-                ax_soc_on.legend(loc='upper right')
+                
+                has_alt_on = False
+                for st in plot_data:
+                    if 'altitude_m' in plot_data[st] and np.any(plot_data[st]['altitude_m']):
+                        has_alt_on = True
+                        ax_alt_on = ax_soc_on.twinx()
+                        l_alt_on, = ax_alt_on.plot(plot_data[st]['time'], plot_data[st]['altitude_m'], label='Výškový profil', color='gray', alpha=0.6, linestyle='--')
+                        ax_alt_on.set_ylabel('Výškový profil [m]', color='gray', fontweight='bold')
+                        lines_soc_on.append(l_alt_on)
+                        break
+                        
+                labels_soc_on = [l.get_label() for l in lines_soc_on]
+                if has_alt_on:
+                    ax_alt_on.legend(lines_soc_on, labels_soc_on, loc='upper right')
+                else:
+                    ax_soc_on.legend(lines_soc_on, labels_soc_on, loc='upper right')
                 fig_soc_on.tight_layout()
 
                 soc_plot_name_on = os.path.join(out_dir, f"SOC_Comparison_AECMS_PECMS_{cycle_name}_{int(cap)}kWh.pdf")
@@ -243,6 +287,7 @@ def main():
             # --- 1c) Legacy combined SOC output: all available strategies ---
             if plot_data:
                 fig_soc_comb, ax_soc_comb = plt.subplots(figsize=(12, 4.8))
+                lines_soc_comb = []
                 combined_soc_strategies = [
                     ('DP', 'black', 2.5),
                     ('ECMS', 'tab:blue', 2.0),
@@ -257,13 +302,14 @@ def main():
                         continue
                     data = plot_data[strat]
                     fuel_label = np.trunc(float(data['fuel']) * 1000.0) / 1000.0
-                    ax_soc_comb.plot(
+                    l, = ax_soc_comb.plot(
                         data['time'],
                         data['soc'],
                         label=f"{strat} (Palivo: {fuel_label:.3f} kg)",
                         color=color,
                         linewidth=lw,
                     )
+                    lines_soc_comb.append(l)
 
                 target_time = None
                 target_soc = None
@@ -278,7 +324,7 @@ def main():
                         break
 
                 if target_soc is not None:
-                    ax_soc_comb.plot(
+                    l_target, = ax_soc_comb.plot(
                         target_time,
                         target_soc,
                         linestyle='--',
@@ -287,6 +333,7 @@ def main():
                         alpha=0.95,
                         label='Cílový SOC',
                     )
+                    lines_soc_comb.append(l_target)
 
                 ax_soc_comb.set_title(
                     f'{get_cycle_display_name(cycle_name)} | kombinované porovnání SOC | Kapacita baterie: {cap} kWh',
@@ -295,7 +342,22 @@ def main():
                 ax_soc_comb.set_xlabel('Čas [s]', fontweight='bold')
                 ax_soc_comb.set_ylabel('Stav nabití (SOC) [%]', fontweight='bold')
                 ax_soc_comb.grid(True, linestyle=':', alpha=0.7)
-                ax_soc_comb.legend(loc='upper right')
+                
+                has_alt_comb = False
+                for st in plot_data:
+                    if 'altitude_m' in plot_data[st] and np.any(plot_data[st]['altitude_m']):
+                        has_alt_comb = True
+                        ax_alt_comb = ax_soc_comb.twinx()
+                        l_alt_comb, = ax_alt_comb.plot(plot_data[st]['time'], plot_data[st]['altitude_m'], label='Výškový profil', color='gray', alpha=0.6, linestyle='--')
+                        ax_alt_comb.set_ylabel('Výškový profil [m]', color='gray', fontweight='bold')
+                        lines_soc_comb.append(l_alt_comb)
+                        break
+                        
+                labels_soc_comb = [l.get_label() for l in lines_soc_comb]
+                if has_alt_comb:
+                    ax_alt_comb.legend(lines_soc_comb, labels_soc_comb, loc='upper right')
+                else:
+                    ax_soc_comb.legend(lines_soc_comb, labels_soc_comb, loc='upper right')
                 fig_soc_comb.tight_layout()
 
                 combined_soc_name = os.path.join(out_dir, f"Combined_SOC_{cycle_name}_{int(cap)}kWh.pdf")

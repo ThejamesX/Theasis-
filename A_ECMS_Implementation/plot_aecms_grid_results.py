@@ -315,6 +315,41 @@ def plot_grid_results(
             zorder=10,
         )
 
+    # Přidání plné čáry pro odchylku 1.5 % do 3D grafu
+    try:
+        from scipy.interpolate import RegularGridInterpolator
+        fuel_interp = RegularGridInterpolator((Y[:, 0], X[0, :]), fuel, bounds_error=False)
+        fig_temp = plt.figure()
+        ax_temp = fig_temp.add_subplot(111)
+        contour_15 = ax_temp.contour(X, Y, dev, levels=[1.5], alpha=0)
+        
+        if contour_15.allsegs and contour_15.allsegs[0]:
+            for seg in contour_15.allsegs[0]:
+                seg_x = seg[:, 0]
+                seg_y = seg[:, 1]
+                seg_pts = np.column_stack((seg_y, seg_x))
+                seg_fuel = fuel_interp(seg_pts)
+                # Kreslení 3D čáry
+                ax1.plot(
+                    seg_x,
+                    seg_y,
+                    seg_fuel + 0.06,
+                    color="black",
+                    linewidth=2,
+                    zorder=9
+                )
+            # Label
+            ax1.plot([], [], [], color="black", linewidth=2, label="Odchylka $\leq$ 1.5 %")
+
+            # Kreslení 3D plochy pro oblast <= 1.5 %
+            fuel_shaded = np.copy(fuel)
+            fuel_shaded[dev > 1.5] = np.nan
+            ax1.plot_surface(X, Y, fuel_shaded + 0.03, color="white", alpha=0.3, zorder=8, linewidth=0)
+
+        plt.close(fig_temp)
+    except Exception as e:
+        print(f"Nepodařilo se vykreslit čáru odchylky 1.5% ve 3D: {e}")
+
     # Camera and aspect tuned for readability over wide Kp ranges.
     ax1.view_init(elev=28, azim=42)
     ax1.set_box_aspect((1.25, 1.15, 0.55))
@@ -351,12 +386,10 @@ def plot_grid_results(
             label=line_label,
         )
 
-    if final_soc is not None:
-        for soc_iso in [max(0.0, target_soc - 0.05), min(1.0, target_soc + 0.05)]:
-            ax2.contour(X, Y, final_soc, levels=[soc_iso], colors="k", linestyles=":", linewidths=1.5)
-    else:
-        for dev_iso in [0.5, 1.2]:
-            ax2.contour(X, Y, dev, levels=[dev_iso], colors="k", linestyles=":", linewidths=1.5)
+    # Přidání izočáry pro odchylku 1.5 %
+    ax2.contour(X, Y, dev, levels=[1.5], colors="black", linestyles="-", linewidths=2.0)
+    ax2.contourf(X, Y, dev, levels=[-np.inf, 1.5], colors=["white"], alpha=0.3)
+    ax2.plot([], [], color="black", linestyle="-", linewidth=2.0, label="Odchylka $\leq$ 1.5 %")
 
     ax2.plot(
         opt_kp_chg,
@@ -409,11 +442,7 @@ def plot_willans_standalone(willans_ref, output_path):
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right", fontsize=10)
 
-    info = (
-        f"Sklon k = {willans_ref['k']:.3e} [g/J]\n"
-        f"s_dis (Willans) = {willans_ref['s_dis_willans']:.3f}\n"
-        f"s_chg (Willans) = {willans_ref['s_chg_willans']:.3f}"
-    )
+    info = f"Sklon k = {willans_ref['k']:.3e} [g/J]"
     ax.text(
         0.97,
         0.03,

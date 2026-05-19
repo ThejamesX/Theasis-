@@ -15,7 +15,7 @@ def _fmt3_no_round(value):
     """Format to x.xxx using truncation (no rounding up)."""
     return f"{np.trunc(float(value) * 1000.0) / 1000.0:.3f}"
 
-def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.0, output_prefix='ecms'):
+def run_ecms_simulation(strategy='PECMS', cycle_file=None, bat_capacity_kwh=120.0, output_prefix='ecms'):
     # 1. Paths
     # Using absolute paths as requested or safer relative if running from root
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -23,7 +23,7 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     if cycle_file:
         vmod_path = cycle_file
     else:
-        vmod_path = os.path.join(base_dir, "Driving Cycle/RegionalDeliveryEMSReferenceLoad.vmod")
+        vmod_path = os.path.join(base_dir, "Driving Cycle/LongHaulEMSReferenceLoad.vmod")
         
     vmap_path = os.path.join(base_dir, "Engine/325kW.vmap")
     vem_path = os.path.join(base_dir, "Emotor/P2_Group5_EM.vem")
@@ -727,7 +727,10 @@ def run_ecms_simulation(strategy='AECMS', cycle_file=None, bat_capacity_kwh=120.
     plt.close(fig) # Close to release memory
     
     fuel_kg = total_fuel_g / 1000.0
-    print(f"Saved {plot_filename} | Fuel: {_fmt3_no_round(fuel_kg)} kg")
+    final_soc_actual = results['soc'][-1] * 100.0
+    soc_error = final_soc_actual - 30.0
+
+    print(f"Saved {plot_filename} | Fuel: {_fmt3_no_round(fuel_kg)} kg | Final SOC: {final_soc_actual:.2f}% | SOC Error: {soc_error:.2f}%")
     
     return fuel_kg, results
 
